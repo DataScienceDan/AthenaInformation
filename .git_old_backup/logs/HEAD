@@ -1,0 +1,25 @@
+0000000000000000000000000000000000000000 724f465aa764691572103f2bc52304f66b58fbbc Daniel Conway <DataScienceDan@gmail.com> 1759838746 -0500	commit (initial): deploying my first static site on heroku
+724f465aa764691572103f2bc52304f66b58fbbc 0000000000000000000000000000000000000000 Daniel Conway <DataScienceDan@gmail.com> 1759840722 -0500	Branch: renamed refs/heads/main to refs/heads/main
+724f465aa764691572103f2bc52304f66b58fbbc 724f465aa764691572103f2bc52304f66b58fbbc Daniel Conway <DataScienceDan@gmail.com> 1759840722 -0500	Branch: renamed refs/heads/main to refs/heads/main
+724f465aa764691572103f2bc52304f66b58fbbc cb1942bfe8792a2da26debb78d72f3455196fe4c Daniel Conway <DataScienceDan@gmail.com> 1759842276 -0500	commit: Commit 4
+cb1942bfe8792a2da26debb78d72f3455196fe4c 0000000000000000000000000000000000000000 Daniel Conway <DataScienceDan@gmail.com> 1759842383 -0500	Branch: renamed refs/heads/main to refs/heads/main
+cb1942bfe8792a2da26debb78d72f3455196fe4c cb1942bfe8792a2da26debb78d72f3455196fe4c Daniel Conway <DataScienceDan@gmail.com> 1759842383 -0500	Branch: renamed refs/heads/main to refs/heads/main
+cb1942bfe8792a2da26debb78d72f3455196fe4c 0000000000000000000000000000000000000000 Daniel Conway <DataScienceDan@gmail.com> 1759842410 -0500	Branch: renamed refs/heads/main to refs/heads/main
+cb1942bfe8792a2da26debb78d72f3455196fe4c cb1942bfe8792a2da26debb78d72f3455196fe4c Daniel Conway <DataScienceDan@gmail.com> 1759842410 -0500	Branch: renamed refs/heads/main to refs/heads/main
+cb1942bfe8792a2da26debb78d72f3455196fe4c 0077320e2485b2753ef949ec14d86a18f9e4e16d Daniel Conway <DataScienceDan@gmail.com> 1759842576 -0500	commit: fifth commit
+0077320e2485b2753ef949ec14d86a18f9e4e16d 0000000000000000000000000000000000000000 Daniel Conway <DataScienceDan@gmail.com> 1759842587 -0500	Branch: renamed refs/heads/main to refs/heads/main
+0077320e2485b2753ef949ec14d86a18f9e4e16d 0077320e2485b2753ef949ec14d86a18f9e4e16d Daniel Conway <DataScienceDan@gmail.com> 1759842587 -0500	Branch: renamed refs/heads/main to refs/heads/main
+0077320e2485b2753ef949ec14d86a18f9e4e16d 3e50a1ae450a9f77a10bb99151a4ef233454a676 Daniel Conway <DataScienceDan@gmail.com> 1763507252 -0600	commit: Ready for Deploymnet
+3e50a1ae450a9f77a10bb99151a4ef233454a676 3e070c4c2b63b553c39bb73f53c06a0a0dc85bbf Daniel Conway <DataScienceDan@gmail.com> 1764632269 -0600	commit: Restore all required functionality: section collapse buttons, Section 2 deduplication with facility names, Section 6 date validation and dynamic prompt generation, Get Schedule button user feedback
+3e070c4c2b63b553c39bb73f53c06a0a0dc85bbf f2a8b86e088bc6388141daeac1a6935b0d8a257e Daniel Conway <DataScienceDan@gmail.com> 1764633024 -0600	commit: Fix Section 2 to use provider names from Section 1 for selected CCN instead of facility names from survey date entries
+f2a8b86e088bc6388141daeac1a6935b0d8a257e be5da757adaa55617aadf97451581d47a49099bc Daniel Conway <DataScienceDan@gmail.com> 1764643020 -0600	commit: Restore all functionality and fix Dashboard.py to prevent overwriting static/Dashboard.html
+be5da757adaa55617aadf97451581d47a49099bc 25e70be16dfa37748b99f345bcb64a76d8dcc759 Daniel Conway <DataScienceDan@gmail.com> 1766037972 -0600	commit: Update README and prepare for GitHub upload - AthenaInformation project
+25e70be16dfa37748b99f345bcb64a76d8dcc759 bbcb8f8166e9002c962c332256e9f2b47a6c0017 Daniel Conway <DataScienceDan@gmail.com> 1766038084 -0600	commit: Add data files: SurveySummaryAll.csv, provider_info.csv, health_deficiencies.csv
+bbcb8f8166e9002c962c332256e9f2b47a6c0017 25e70be16dfa37748b99f345bcb64a76d8dcc759 Daniel Conway <DataScienceDan@gmail.com> 1766060836 -0600	reset: moving to HEAD~1
+25e70be16dfa37748b99f345bcb64a76d8dcc759 25e70be16dfa37748b99f345bcb64a76d8dcc759 Daniel Conway <DataScienceDan@gmail.com> 1766060851 -0600	reset: moving to HEAD
+25e70be16dfa37748b99f345bcb64a76d8dcc759 9e82414b382060b92c37b6a4c293cfff419784df Daniel Conway <DataScienceDan@gmail.com> 1766060896 -0600	commit: Chunk health_deficiencies.csv into 25k-line parts and load from parts; ignore backup
+9e82414b382060b92c37b6a4c293cfff419784df 7a4d5e5d4f2aba4dd801b11b850384fffbb9c290 Daniel Conway <DataScienceDan@gmail.com> 1766063084 -0600	commit: Document health_deficiencies auto-splitting and add deployment helpers
+7a4d5e5d4f2aba4dd801b11b850384fffbb9c290 c7522cfd38eb4f533dec6e35bde5ec7c5cf64415 Daniel Conway <DataScienceDan@gmail.com> 1766063760 -0600	commit: Ignore all health_deficiencies.* files and untrack chunk parts
+c7522cfd38eb4f533dec6e35bde5ec7c5cf64415 4ceb720bee54e4ad73f3313b3a8d4a4dbf338257 Daniel Conway <DataScienceDan@gmail.com> 1766063886 -0600	commit: Track health_deficiencies_part* CSV chunks; still ignore large base CSV
+4ceb720bee54e4ad73f3313b3a8d4a4dbf338257 174e4feef6a158952e704f8ef6f757e2cf177208 Daniel Conway <DataScienceDan@gmail.com> 1766064071 -0600	commit: Update deployment guide and latest data files before GitHub upload
+174e4feef6a158952e704f8ef6f757e2cf177208 cd026031bea9a55f31114d356e3b0a96950ddb97 Daniel Conway <DataScienceDan@gmail.com> 1766064104 -0600	commit: Remove obsolete SurveySummaryAll.xlsx (replaced by CSV)

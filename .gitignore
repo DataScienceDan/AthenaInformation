@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment variables
+.env
+*.env
+
+# API Keys and secrets
+*Key.txt
+*Token.txt
+DanConwayKey.txt
+ToDoToken.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (optional - uncomment if you don't want to commit large files)
+# *.xlsx
+# *.csv
+# Neighbors.xlsx
+# Ignore only the large base/backup health_deficiencies files; keep chunk parts tracked
+health_deficiencies.csv
+health_deficiencies_bak.csv
+
+# Backups
+backups/
+backup_*/
+*_BAK.*
+*_BAK2.*
+backup_current_state.py
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+
+# Temporary files
+*.tmp
+*.temp
+
