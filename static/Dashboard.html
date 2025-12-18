@@ -501,6 +501,28 @@
             <p>Comprehensive facility information and analytics</p>
         </div>
         
+        <!-- OpenAI API Key Input (used for schedule generation) -->
+        <div class="section" style="border-left-color:#10B981; margin-bottom:20px;">
+            <h2 style="cursor:default;">
+                <span class="section-header-content">API Configuration</span>
+            </h2>
+            <div class="section-content">
+                <div class="form-group">
+                    <label for="openaiApiKeyInput">OpenAI API Key:</label>
+                    <input 
+                        type="password" 
+                        id="openaiApiKeyInput" 
+                        placeholder="Paste your OpenAI API key here (used only for schedule generation)" 
+                        style="width:100%; padding:10px; border:2px solid #e1e5e9; border-radius:8px; font-size:14px;"
+                    >
+                    <p style="margin-top:6px; font-size:0.85rem; color:#6b7280;">
+                        This key is stored only in your browser session and sent securely to the server
+                        when generating a schedule. It is no longer read from <code>DanConwayKey.txt</code>.
+                    </p>
+                </div>
+            </div>
+        </div>
+        
         <!-- Section 1: State and Facility Selection -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
@@ -3735,16 +3757,25 @@
                 if (!btn) return;
                 btn.addEventListener('click', async function() {
                     // User feedback before API call
-                    alert('The schedule generation request has been submitted. This may take 2-3 minutes to complete. You will be notified when the result is ready.');
                     try {
                         const textarea = document.getElementById('promptTextarea');
                         const prompt = textarea ? textarea.value.trim() : '';
                         if (!prompt) { alert('Prompt is empty. Please generate or enter a prompt.'); return; }
 
+                        const apiKeyInput = document.getElementById('openaiApiKeyInput');
+                        const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+                        if (!apiKey) {
+                            alert('Please paste your OpenAI API key in the API Configuration box above before requesting a schedule.');
+                            if (apiKeyInput) apiKeyInput.focus();
+                            return;
+                        }
+
+                        alert('The schedule generation request has been submitted. This may take 2-3 minutes to complete. You will be notified when the result is ready.');
+
                         const resp = await fetch('/api/generate-schedule', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ prompt })
+                            body: JSON.stringify({ prompt, apiKey })
                         });
                         if (!resp.ok) {
                             const t = await resp.text();

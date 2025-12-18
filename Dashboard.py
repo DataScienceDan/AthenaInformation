@@ -2751,24 +2751,16 @@ def generate_schedule():
         if not prompt:
             return jsonify({'error': 'Missing prompt'}), 400
 
-        # Get API key from environment variable for security
+        # Prefer API key sent from the browser, fall back to environment variable for deployments
         from openai import OpenAI
         import json, re
         import os
-        # Read API key from environment variable (for deployment) or file (for local development)
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = (data.get('apiKey') or '').strip()
         if not api_key:
-            # Fallback to file for local development
-            key_file_path = Path('DanConwayKey.txt')
-            if key_file_path.exists():
-                try:
-                    with open(key_file_path, 'r') as f:
-                        api_key = f.read().strip()
-                except Exception as e:
-                    print(f"Error reading API key file: {e}")
+            api_key = os.getenv('OPENAI_API_KEY', '').strip()
         
         if not api_key:
-            return jsonify({'error': 'OpenAI API key not found. Please set OPENAI_API_KEY environment variable or provide DanConwayKey.txt file.'}), 500
+            return jsonify({'error': 'OpenAI API key not provided. Please enter it in the dashboard or set the OPENAI_API_KEY environment variable.'}), 500
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model="gpt-4o",  # Using gpt-4o (or change to "gpt-3.5-turbo" for cheaper option)
