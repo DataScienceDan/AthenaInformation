@@ -18,6 +18,7 @@ ENV/
 *Token.txt
 DanConwayKey.txt
 ToDoToken.txt
+TestKey.py
 
 # IDE
 .vscode/
