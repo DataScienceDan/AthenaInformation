@@ -9,6 +9,8 @@ from openai import OpenAI
 import json, re
 import numpy as np
 from typing import Set
+import io
+import requests
 
 app = Flask(__name__)
 
@@ -17,9 +19,48 @@ facilities_data = None
 provider_info_data = None
 deficiencies_data = None
 
+def download_data_file_if_missing():
+    """Download required data files if they don't exist (for deployment)"""
+    PROVIDER_DATASET_ID = "4pq5-n9py"
+    SURVEY_SUMMARY_DATASET_ID = "tbry-pc2d"
+    
+    def _dataset_csv_url(dataset_id: str) -> str:
+        return f"https://data.cms.gov/provider-data/api/1/datastore/query/{dataset_id}/0/download?format=csv"
+    
+    def _load_csv_to_dataframe(csv_url: str) -> pd.DataFrame:
+        headers = {"User-Agent": "Athena-Dashboard/1.0", "Accept": "text/csv"}
+        resp = requests.get(csv_url, headers=headers, timeout=120)
+        resp.raise_for_status()
+        return pd.read_csv(io.BytesIO(resp.content))
+    
+    # Download provider_info.csv if missing
+    if not os.path.exists('provider_info.csv'):
+        print("provider_info.csv not found. Downloading from CMS API...")
+        try:
+            provider_df = _load_csv_to_dataframe(_dataset_csv_url(PROVIDER_DATASET_ID))
+            provider_df.to_csv('provider_info.csv', index=False)
+            print(f"✓ Downloaded provider_info.csv with {len(provider_df):,} rows")
+        except Exception as e:
+            print(f"⚠ Warning: Failed to download provider_info.csv: {e}")
+    
+    # Download survey_summary.csv if SurveySummaryAll.csv is missing
+    if not os.path.exists('SurveySummaryAll.csv') and not os.path.exists('SurveySummaryAll.xlsx'):
+        print("SurveySummaryAll.csv not found. Downloading survey_summary.csv from CMS API...")
+        try:
+            survey_df = _load_csv_to_dataframe(_dataset_csv_url(SURVEY_SUMMARY_DATASET_ID))
+            # Remove duplicates as GetProviderData.py does
+            survey_df = survey_df.drop_duplicates().reset_index(drop=True)
+            survey_df.to_csv('SurveySummaryAll.csv', index=False)
+            print(f"✓ Downloaded SurveySummaryAll.csv with {len(survey_df):,} rows")
+        except Exception as e:
+            print(f"⚠ Warning: Failed to download SurveySummaryAll.csv: {e}")
+
 def load_facilities_data():
     """Load facilities data from Excel file and convert to CSV if needed"""
     global facilities_data, provider_info_data, deficiencies_data
+    
+    # Download data files if missing (for deployment)
+    download_data_file_if_missing()
     
     excel_file = "SurveySummaryAll.xlsx"
     csv_file = "SurveySummaryAll.csv"
@@ -2915,7 +2956,9 @@ def import_todoist():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
+# Load data when app starts (works for both direct run and gunicorn)
+def initialize_app():
+    """Initialize app data - called on startup"""
     print("Loading facilities data...")
     data = load_facilities_data()
     
@@ -2923,25 +2966,32 @@ if __name__ == '__main__':
         print("Data loaded successfully!")
         print(f"Dataset shape: {data.shape}")
         print(f"Columns: {list(data.columns)}")
-        
-        # Move HTML file to static folder for Flask (only if static version doesn't exist)
-        static_dir = 'static'
-        if not os.path.exists(static_dir):
-            os.makedirs(static_dir)
-        
-        static_html_path = os.path.join(static_dir, 'Dashboard.html')
-        # Only copy from root if static version doesn't exist (to preserve manual edits)
-        if os.path.exists('Dashboard.html') and not os.path.exists(static_html_path):
-            import shutil
-            shutil.copy('Dashboard.html', static_html_path)
-            print(f"Copied Dashboard.html to {static_dir}/")
-        elif os.path.exists(static_html_path):
-            print(f"Using existing {static_html_path} (not overwriting with root Dashboard.html)")
-        
-        print("\nStarting Flask server...")
-        print("Dashboard will be available at: http://localhost:5000/")
-        print("Press Ctrl+C to stop the server")
-        
-        app.run(debug=True, host='0.0.0.0', port=5000)
     else:
-        print("Failed to load data. Please check your data files.")
+        print("⚠ Warning: Failed to load data. Some features may not work.")
+    
+    # Move HTML file to static folder for Flask (only if static version doesn't exist)
+    static_dir = 'static'
+    if not os.path.exists(static_dir):
+        os.makedirs(static_dir)
+    
+    static_html_path = os.path.join(static_dir, 'Dashboard.html')
+    # Only copy from root if static version doesn't exist (to preserve manual edits)
+    if os.path.exists('Dashboard.html') and not os.path.exists(static_html_path):
+        import shutil
+        shutil.copy('Dashboard.html', static_html_path)
+        print(f"Copied Dashboard.html to {static_dir}/")
+    elif os.path.exists(static_html_path):
+        print(f"Using existing {static_html_path} (not overwriting with root Dashboard.html)")
+
+# Initialize on import (for gunicorn)
+try:
+    initialize_app()
+except Exception as e:
+    print(f"⚠ Warning during initialization: {e}")
+
+if __name__ == '__main__':
+    print("\nStarting Flask server...")
+    print("Dashboard will be available at: http://localhost:5000/")
+    print("Press Ctrl+C to stop the server")
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
