@@ -13,10 +13,14 @@
             box-sizing: border-box;
         }
         
-        body {
+        html, body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f5f5f5;
             color: #333;
+            height: auto;
+            min-height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
         
         .container {
@@ -2113,9 +2117,16 @@
                 existingMarkers.forEach(marker => marker.remove());
                 
                 // Add historical markers using the exact same logic as Section 2
-                surveyDates.forEach((dateInfo) => {
-                    addHistoricalMarkerToForecastTimeline(timeline, dateInfo);
-                });
+                if (surveyDates && Array.isArray(surveyDates) && surveyDates.length > 0) {
+                    surveyDates.forEach((dateInfo) => {
+                        // Ensure dateInfo has a date property
+                        if (dateInfo && (dateInfo.date || dateInfo)) {
+                            addHistoricalMarkerToForecastTimeline(timeline, dateInfo);
+                        }
+                    });
+                } else {
+                    console.log(`🔮 No survey dates to add to timeline ${index + 1}`);
+                }
             });
         }
         
@@ -2124,7 +2135,9 @@
             // Calculate position on timeline (1/1/2016 to 12/31/2026) - extended for forecasts
             const startDate = new Date('2016-01-01');
             const endDate = new Date('2026-12-31');
-            const surveyDate = new Date(dateInfo.date);
+            // Handle both object format {date: "..."} and string format
+            const dateStr = dateInfo.date || dateInfo;
+            const surveyDate = new Date(dateStr);
             
             const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
             const daysFromStart = (surveyDate - startDate) / (1000 * 60 * 60 * 24);

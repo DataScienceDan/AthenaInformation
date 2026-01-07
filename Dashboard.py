@@ -54,6 +54,21 @@ def download_data_file_if_missing():
             print(f"✓ Downloaded SurveySummaryAll.csv with {len(survey_df):,} rows")
         except Exception as e:
             print(f"⚠ Warning: Failed to download SurveySummaryAll.csv: {e}")
+    
+    # Download health_deficiencies.csv if missing (for ZIP histogram and other features)
+    HEALTH_DEFICIENCIES_DATASET_ID = "r5ix-sfxw"
+    if not os.path.exists('health_deficiencies.csv') and not os.path.exists('health_deficiencies.xlsx'):
+        # Check for chunk files first
+        import glob
+        part_files = sorted(glob.glob('health_deficiencies_part*.csv'))
+        if not part_files:
+            print("health_deficiencies.csv not found. Downloading from CMS API...")
+            try:
+                deficiencies_df = _load_csv_to_dataframe(_dataset_csv_url(HEALTH_DEFICIENCIES_DATASET_ID))
+                deficiencies_df.to_csv('health_deficiencies.csv', index=False)
+                print(f"✓ Downloaded health_deficiencies.csv with {len(deficiencies_df):,} rows")
+            except Exception as e:
+                print(f"⚠ Warning: Failed to download health_deficiencies.csv: {e}")
 
 def load_facilities_data():
     """Load facilities data from Excel file and convert to CSV if needed"""
