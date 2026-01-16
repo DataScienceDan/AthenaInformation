@@ -1637,22 +1637,22 @@
             // Clear existing timeline
             timelineContainer.innerHTML = '';
             
-            // Create timeline HTML
+            // Create timeline HTML with placeholder scale (will be updated when survey dates are loaded)
+            const today = new Date();
+            const defaultStartDate = new Date(today.getFullYear() - 10, 0, 1); // January 1st, 10 years ago
+            const defaultScaleItems = generateTimelineScale(defaultStartDate, today);
+            
             const timelineHTML = `
                 <div class="timeline">
                     <div class="timeline-line"></div>
                     <div class="timeline-scale">
-                        <div class="timeline-scale-item">1/1/2016</div>
-                        <div class="timeline-scale-item">1/1/2018</div>
-                        <div class="timeline-scale-item">1/1/2020</div>
-                        <div class="timeline-scale-item">1/1/2022</div>
-                        <div class="timeline-scale-item">7/1/2025</div>
+                        ${defaultScaleItems.map(item => `<div class="timeline-scale-item">${item}</div>`).join('')}
                     </div>
                 </div>
                 <div class="timeline-info">
                     <h4>Survey Dates for ${facility['Provider Name'] || 'Selected Facility'}</h4>
-                    <p>Timeline spans from January 1, 2016 to July 1, 2025</p>
-                    <p>Survey dates will be displayed as markers on the timeline</p>
+                    <p>Loading survey dates...</p>
+                    <p>Timeline will adjust to show from January of the earliest survey date to today</p>
                 </div>
             `;
             
@@ -1793,12 +1793,19 @@
                 displayForecastsWithHistoricalData(forecasts, surveyDates, facilityName, state);
                 
                 // Calculate and display average forecast
-                const validForecasts = forecasts.filter(f => f && f.date instanceof Date && !isNaN(f.date));
-                console.log('🔮 Valid forecasts:', validForecasts);
+                // Exclude "State Average" and "County Average" from the calculation
+                const validForecasts = forecasts.filter(f => 
+                    f && 
+                    f.date instanceof Date && 
+                    !isNaN(f.date) &&
+                    f.type !== 'State Average' &&
+                    f.type !== 'County Average'
+                );
+                console.log('🔮 Valid forecasts (excluding State/County Average):', validForecasts);
                 
                 if (validForecasts.length > 0) {
                     const averageDate = calculateAverageForecast(validForecasts);
-                    console.log('🔮 Average forecast date:', averageDate);
+                    console.log('🔮 Average forecast date (Predicted Next Survey Date):', averageDate);
                     displayAverageForecast(averageDate, surveyDates);
                 }
                 
@@ -2787,19 +2794,54 @@
             });
         }
 
+        function generateTimelineScale(startDate, endDate) {
+            const scaleItems = [];
+            const startYear = startDate.getFullYear();
+            const endYear = endDate.getFullYear();
+            const totalYears = endYear - startYear + 1;
+            
+            // Generate scale items - aim for 5-7 items
+            let interval = 1;
+            if (totalYears > 10) interval = 2;
+            if (totalYears > 20) interval = 5;
+            
+            for (let year = startYear; year <= endYear; year += interval) {
+                const scaleDate = new Date(year, 0, 1); // January 1st
+                if (scaleDate <= endDate) {
+                    scaleItems.push(scaleDate);
+                }
+            }
+            
+            // Always include the end date (today)
+            if (scaleItems.length === 0 || scaleItems[scaleItems.length - 1].getTime() !== endDate.getTime()) {
+                scaleItems.push(endDate);
+            }
+            
+            return scaleItems.map(date => {
+                const month = date.getMonth() + 1;
+                const day = date.getDate();
+                const year = date.getFullYear();
+                return `${month}/${day}/${year}`;
+            });
+        }
+        
         function addTimelineMarkers(surveyDates, facilityName, state, defaultCcn = '') {
+            // Calculate date range from earliest survey date to today
+            let startDate, endDate;
+            let timelineScaleItems;
+            
             if (!surveyDates || surveyDates.length === 0) {
+                // If no survey dates, use a default range (last 10 years to today)
+                endDate = new Date();
+                startDate = new Date(endDate.getFullYear() - 10, 0, 1); // January 1st, 10 years ago
+                timelineScaleItems = generateTimelineScale(startDate, endDate);
+                
                 const timelineContainer = document.getElementById('timelineContainer');
                 timelineContainer.innerHTML = `
                     <div class="timeline">
                         <div class="timeline-line"></div>
                         <div class="timeline-scale">
-                            <div class="timeline-scale-item">1/1/2016</div>
-                            <div class="timeline-scale-item">1/1/2018</div>
-                            <div class="timeline-scale-item">1/1/2020</div>
-                            <div class="timeline-scale-item">1/1/2022</div>
-                            <div class="timeline-scale-item">1/1/2025</div>
-                            <div class="timeline-scale-item">12/31/2026</div>
+                            ${timelineScaleItems.map(item => `<div class="timeline-scale-item">${item}</div>`).join('')}
                         </div>
                     </div>
                     <div class="timeline-info">
@@ -2811,6 +2853,19 @@
                 return;
             }
             
+            // Find earliest date from survey dates
+            const dates = surveyDates.map(d => new Date(d.date)).filter(d => !isNaN(d.getTime()));
+            if (dates.length === 0) {
+                endDate = new Date();
+                startDate = new Date(endDate.getFullYear() - 10, 0, 1);
+            } else {
+                const earliestDate = new Date(Math.min(...dates.map(d => d.getTime())));
+                startDate = new Date(earliestDate.getFullYear(), 0, 1); // January 1st of earliest year
+                endDate = new Date(); // Today
+            }
+            
+            timelineScaleItems = generateTimelineScale(startDate, endDate);
+            
             // Ensure each dateInfo has a CCN
             surveyDates = surveyDates.map(dateInfo => ({
                 ...dateInfo,
@@ -2820,6 +2875,12 @@
             const timeline = document.querySelector('.timeline');
             const timelineInfo = document.querySelector('.timeline-info');
             
+            // Update timeline scale
+            const timelineScale = timeline.querySelector('.timeline-scale');
+            if (timelineScale) {
+                timelineScale.innerHTML = timelineScaleItems.map(item => `<div class="timeline-scale-item">${item}</div>`).join('');
+            }
+            
             // Update info section with a raw list of dates for verification
             const datesList = surveyDates
                 .map(d => `<li>${new Date(d.date).toLocaleDateString()}</li>`) 
@@ -2828,6 +2889,7 @@
                 <h4>Survey Dates Found: ${surveyDates.length}</h4>
                 <p><strong>Facility:</strong> ${facilityName}</p>
                 <p><strong>State:</strong> ${state}</p>
+                <p>Timeline spans from ${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}</p>
                 <p>Click on a marker to see details</p>
                 <h5>All Survey Dates</h5>
                 <ul>${datesList}</ul>
@@ -2850,9 +2912,7 @@
                 marker.style.border = '3px solid white';
                 marker.style.boxShadow = '0 0 8px rgba(45, 55, 72, 0.6)';
                 
-                // Calculate position on timeline (1/1/2016 to 7/1/2025)
-                const startDate = new Date('2016-01-01');
-                const endDate = new Date('2025-07-01');
+                // Calculate position on timeline (from January of earliest year to today)
                 const surveyDate = new Date(dateInfo.date);
                 
                 const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24);

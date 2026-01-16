@@ -1949,118 +1949,316 @@ def get_facility_survey_dates(state, facility_id):
 
 @app.route('/api/state-average-interval/<state>')
 def get_state_average_interval(state):
-    """Calculate average time between surveys for facilities in a state."""
-    global facilities_data
+    """Calculate average time between surveys for facilities in a state, grouped by CCN."""
+    global facilities_data, deficiencies_data
+    
+    def normalize_ccn(value):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        return s.lstrip('0').zfill(6)
+    
     if facilities_data is None:
         return jsonify({'error': 'Data not loaded'}), 500
     
     try:
+        # Normalize state input
+        state_normalized = normalize_state_input(state)
+        
+        # Find state column
         state_columns = ['State', 'STATE', 'state', 'Provider State', 'Provider_State']
         state_col = next((c for c in state_columns if c in facilities_data.columns), None)
         
         if state_col is None:
             return jsonify({'error': 'State column not found'}), 500
         
-        # Filter by state
-        state_facilities = facilities_data[facilities_data[state_col] == state]
+        # Filter by state (case-insensitive)
+        state_facilities = facilities_data[
+            facilities_data[state_col].astype(str).str.strip().str.upper() == state_normalized
+        ]
         
-        # Get survey dates
+        # Find CCN column
+        ccn_columns = ['CCN', 'ccn', 'CMS Certification Number', 'CMS Certification Number (CCN)']
+        ccn_col = next((c for c in ccn_columns if c in facilities_data.columns), None)
+        
+        if ccn_col is None:
+            return jsonify({'error': 'CCN column not found'}), 500
+        
+        # Find survey date column
         survey_date_columns = ['Health Survey Date', 'health_survey_date', 'Survey Date', 'survey_date', 'Date', 'date']
         survey_date_col = next((c for c in survey_date_columns if c in facilities_data.columns), None)
         
-        if survey_date_col is None:
-            return jsonify({'average_days': 365, 'count': 0})
+        # First, collect all CCNs from facilities in this state
+        state_ccns = set()
+        if survey_date_col:
+            for _, facility in state_facilities.iterrows():
+                ccn_val = normalize_ccn(facility.get(ccn_col))
+                if ccn_val:
+                    state_ccns.add(ccn_val)
         
-        intervals = []
-        for _, facility in state_facilities.iterrows():
-            date_str = str(facility.get(survey_date_col, ''))
-            if date_str and date_str != 'nan' and date_str != 'None':
-                parsed = pd.to_datetime(date_str, errors='coerce')
-                if parsed is not None and not pd.isna(parsed):
-                    if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
-                        # Calculate days since 2016-01-01 as a proxy for interval
-                        days_since_start = (parsed - pd.Timestamp('2016-01-01')).days
-                        intervals.append(days_since_start)
+        # Dictionary to store survey dates by CCN
+        ccn_survey_dates = {}
         
-        if len(intervals) < 2:
-            return jsonify({'average_days': 365, 'count': len(intervals)})
+        # Collect survey dates from facilities_data, grouped by CCN
+        if survey_date_col:
+            for _, facility in state_facilities.iterrows():
+                ccn_val = normalize_ccn(facility.get(ccn_col))
+                if not ccn_val:
+                    continue
+                
+                date_str = str(facility.get(survey_date_col, ''))
+                if date_str and date_str not in ['nan', 'None', '']:
+                    parsed = pd.to_datetime(date_str, errors='coerce')
+                    if parsed is not None and not pd.isna(parsed):
+                        if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
+                            if ccn_val not in ccn_survey_dates:
+                                ccn_survey_dates[ccn_val] = []
+                            ccn_survey_dates[ccn_val].append(parsed)
         
-        # Calculate average interval (simplified - using median as proxy)
-        intervals.sort()
-        median_interval = intervals[len(intervals) // 2] if intervals else 365
-        average_days = max(30, min(1095, median_interval // 2))  # Between 1 month and 3 years
+        # Also collect survey dates from deficiencies_data, grouped by CCN
+        # Filter by CCNs we found in the state (this ensures we only use facilities from this state)
+        if deficiencies_data is not None and state_ccns:
+            def_ccn_col = next((c for c in ccn_columns if c in deficiencies_data.columns), None)
+            def_date_col = next((c for c in survey_date_columns if c in deficiencies_data.columns), None)
+            
+            if def_ccn_col and def_date_col:
+                # Filter deficiencies by CCNs from this state
+                state_deficiencies = deficiencies_data[
+                    deficiencies_data[def_ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6).isin(state_ccns)
+                ]
+                
+                for _, row in state_deficiencies.iterrows():
+                    ccn_val = normalize_ccn(row.get(def_ccn_col))
+                    if not ccn_val or ccn_val not in state_ccns:
+                        continue
+                    
+                    date_str = str(row.get(def_date_col, ''))
+                    if date_str and date_str not in ['nan', 'None', '']:
+                        parsed = pd.to_datetime(date_str, errors='coerce')
+                        if parsed is not None and not pd.isna(parsed):
+                            if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
+                                if ccn_val not in ccn_survey_dates:
+                                    ccn_survey_dates[ccn_val] = []
+                                ccn_survey_dates[ccn_val].append(parsed)
         
-        return jsonify({'average_days': average_days, 'count': len(intervals)})
+        # Calculate intervals between consecutive surveys for each CCN
+        all_intervals = []
+        facilities_with_intervals = 0
+        
+        for ccn, dates in ccn_survey_dates.items():
+            # Remove duplicates and sort dates
+            unique_dates = sorted(set(dates))
+            if len(unique_dates) < 2:
+                continue  # Need at least 2 dates to calculate an interval
+            
+            # Calculate intervals between consecutive surveys
+            for i in range(len(unique_dates) - 1):
+                interval_days = (unique_dates[i + 1] - unique_dates[i]).days
+                if interval_days > 0:  # Only include positive intervals
+                    all_intervals.append(interval_days)
+            
+            if len(unique_dates) >= 2:
+                facilities_with_intervals += 1
+        
+        # Calculate average interval
+        if len(all_intervals) == 0:
+            return jsonify({'average_days': 365, 'count': 0, 'facilities': 0})
+        
+        # Use median for robustness (less sensitive to outliers)
+        all_intervals.sort()
+        median_interval = all_intervals[len(all_intervals) // 2] if all_intervals else 365
+        # Also calculate mean for reference
+        mean_interval = sum(all_intervals) / len(all_intervals)
+        # Use median, but clamp to reasonable range
+        average_days = max(30, min(1095, int(round(median_interval))))
+        
+        return jsonify({
+            'average_days': average_days,
+            'count': len(all_intervals),
+            'facilities': facilities_with_intervals,
+            'mean_interval': int(round(mean_interval)),
+            'median_interval': int(round(median_interval))
+        })
         
     except Exception as e:
+        import traceback
+        print(f"Error in get_state_average_interval: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/zip-average-interval/<state>/<county>')
 def get_zip_average_interval(state, county):
-    """Calculate average time between surveys for facilities in a County/Parish."""
-    global facilities_data, provider_info_data
+    """Calculate average time between surveys for facilities in a County/Parish, grouped by CCN."""
+    global facilities_data, provider_info_data, deficiencies_data
+    
+    def normalize_ccn(value):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        return s.lstrip('0').zfill(6)
+    
     if facilities_data is None or provider_info_data is None:
         return jsonify({'error': 'Data not loaded'}), 500
     
     try:
+        # Normalize state input
+        state_normalized = normalize_state_input(state)
+        
+        # Find state column
         state_columns = ['State', 'STATE', 'state', 'Provider State', 'Provider_State']
         state_col = next((c for c in state_columns if c in facilities_data.columns), None)
         
         if state_col is None:
             return jsonify({'error': 'State column not found'}), 500
         
-        # Filter by state
-        state_facilities = facilities_data[facilities_data[state_col] == state]
+        # Filter by state (case-insensitive)
+        state_facilities = facilities_data[
+            facilities_data[state_col].astype(str).str.strip().str.upper() == state_normalized
+        ]
         
         # Get all CCNs in the state
+        ccn_columns = ['CCN', 'ccn', 'CMS Certification Number', 'CMS Certification Number (CCN)']
         state_ccns = set()
-        for idcol in ['CCN', 'ccn', 'CMS Certification Number', 'CMS Certification Number (CCN)']:
+        for idcol in ccn_columns:
             if idcol in state_facilities.columns:
-                state_ccns.update(state_facilities[idcol].astype(str).str.strip().str.lstrip('0').str.zfill(6))
+                state_ccns.update([
+                    normalize_ccn(val) for val in state_facilities[idcol].dropna().tolist()
+                    if normalize_ccn(val)
+                ])
         
-        # Find all facilities in the same county from provider_info_data
-        ccn_col = 'CMS Certification Number (CCN)'
+        # Find all facilities in the same county from provider_info_data using CCN
+        ccn_col_provider = 'CMS Certification Number (CCN)'
+        county_cols = ['County/Parish', 'County', 'County Name', 'county_name']
+        county_col_provider = next((c for c in county_cols if c in provider_info_data.columns), 'County/Parish')
+        
+        if ccn_col_provider not in provider_info_data.columns:
+            return jsonify({'error': 'CCN column not found in provider_info_data'}), 500
+        
+        # Normalize county name for comparison (case-insensitive, handle variations)
+        county_normalized = str(county).strip()
+        
+        # Filter providers by county (case-insensitive) and ensure CCNs are in state
         county_providers = provider_info_data[
-            (provider_info_data['County/Parish'] == county) & 
-            (provider_info_data[ccn_col].astype(str).str.strip().isin(state_ccns))
+            (provider_info_data[county_col_provider].astype(str).str.strip().str.upper() == county_normalized.upper()) &
+            (provider_info_data[ccn_col_provider].astype(str).str.strip().str.lstrip('0').str.zfill(6).isin(state_ccns))
         ]
-        county_ccns = set(county_providers[ccn_col].astype(str).str.strip())
         
-        # Filter state_facilities to only include facilities in the same county
-        county_facilities = state_facilities.copy()
-        for idcol in ['CCN', 'ccn', 'CMS Certification Number', 'CMS Certification Number (CCN)']:
-            if idcol in county_facilities.columns:
-                county_facilities['CCN_NORM'] = county_facilities[idcol].astype(str).str.strip().str.lstrip('0').str.zfill(6)
-                county_facilities = county_facilities[county_facilities['CCN_NORM'].isin(county_ccns)]
-                break
+        # Get county CCNs (normalized)
+        county_ccns = set()
+        for ccn_val in county_providers[ccn_col_provider].dropna().tolist():
+            normalized = normalize_ccn(ccn_val)
+            if normalized:
+                county_ccns.add(normalized)
         
-        # Get survey dates
+        if not county_ccns:
+            return jsonify({'average_days': 365, 'count': 0, 'facilities': 0})
+        
+        # Find CCN column in facilities_data
+        ccn_col = next((c for c in ccn_columns if c in facilities_data.columns), None)
+        
+        if ccn_col is None:
+            return jsonify({'error': 'CCN column not found in facilities_data'}), 500
+        
+        # Find survey date column
         survey_date_columns = ['Health Survey Date', 'health_survey_date', 'Survey Date', 'survey_date', 'Date', 'date']
         survey_date_col = next((c for c in survey_date_columns if c in facilities_data.columns), None)
         
-        if survey_date_col is None:
-            return jsonify({'average_days': 365, 'count': 0})
+        # Dictionary to store survey dates by CCN
+        ccn_survey_dates = {}
         
-        intervals = []
-        for _, facility in county_facilities.iterrows():
-            date_str = str(facility.get(survey_date_col, ''))
-            if date_str and date_str != 'nan' and date_str != 'None':
-                parsed = pd.to_datetime(date_str, errors='coerce')
-                if parsed is not None and not pd.isna(parsed):
-                    if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
-                        days_since_start = (parsed - pd.Timestamp('2016-01-01')).days
-                        intervals.append(days_since_start)
+        # Collect survey dates from facilities_data for county CCNs
+        if survey_date_col:
+            # Filter facilities by county CCNs
+            county_facilities = state_facilities[
+                state_facilities[ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6).isin(county_ccns)
+            ]
+            
+            for _, facility in county_facilities.iterrows():
+                ccn_val = normalize_ccn(facility.get(ccn_col))
+                if not ccn_val or ccn_val not in county_ccns:
+                    continue
+                
+                date_str = str(facility.get(survey_date_col, ''))
+                if date_str and date_str not in ['nan', 'None', '']:
+                    parsed = pd.to_datetime(date_str, errors='coerce')
+                    if parsed is not None and not pd.isna(parsed):
+                        if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
+                            if ccn_val not in ccn_survey_dates:
+                                ccn_survey_dates[ccn_val] = []
+                            ccn_survey_dates[ccn_val].append(parsed)
         
-        if len(intervals) < 2:
-            return jsonify({'average_days': 365, 'count': len(intervals)})
+        # Also collect survey dates from deficiencies_data for county CCNs
+        if deficiencies_data is not None and county_ccns:
+            def_ccn_col = next((c for c in ccn_columns if c in deficiencies_data.columns), None)
+            def_date_col = next((c for c in survey_date_columns if c in deficiencies_data.columns), None)
+            
+            if def_ccn_col and def_date_col:
+                # Filter deficiencies by county CCNs
+                county_deficiencies = deficiencies_data[
+                    deficiencies_data[def_ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6).isin(county_ccns)
+                ]
+                
+                for _, row in county_deficiencies.iterrows():
+                    ccn_val = normalize_ccn(row.get(def_ccn_col))
+                    if not ccn_val or ccn_val not in county_ccns:
+                        continue
+                    
+                    date_str = str(row.get(def_date_col, ''))
+                    if date_str and date_str not in ['nan', 'None', '']:
+                        parsed = pd.to_datetime(date_str, errors='coerce')
+                        if parsed is not None and not pd.isna(parsed):
+                            if pd.Timestamp('2016-01-01') <= parsed <= pd.Timestamp('2027-12-31'):
+                                if ccn_val not in ccn_survey_dates:
+                                    ccn_survey_dates[ccn_val] = []
+                                ccn_survey_dates[ccn_val].append(parsed)
         
-        intervals.sort()
-        median_interval = intervals[len(intervals) // 2] if intervals else 365
-        average_days = max(30, min(1095, median_interval // 2))
+        # Calculate intervals between consecutive surveys for each CCN
+        all_intervals = []
+        facilities_with_intervals = 0
         
-        return jsonify({'average_days': average_days, 'count': len(intervals)})
+        for ccn, dates in ccn_survey_dates.items():
+            # Remove duplicates and sort dates
+            unique_dates = sorted(set(dates))
+            if len(unique_dates) < 2:
+                continue  # Need at least 2 dates to calculate an interval
+            
+            # Calculate intervals between consecutive surveys
+            for i in range(len(unique_dates) - 1):
+                interval_days = (unique_dates[i + 1] - unique_dates[i]).days
+                if interval_days > 0:  # Only include positive intervals
+                    all_intervals.append(interval_days)
+            
+            if len(unique_dates) >= 2:
+                facilities_with_intervals += 1
+        
+        # Calculate average interval
+        if len(all_intervals) == 0:
+            return jsonify({'average_days': 365, 'count': 0, 'facilities': 0})
+        
+        # Use median for robustness (less sensitive to outliers)
+        all_intervals.sort()
+        median_interval = all_intervals[len(all_intervals) // 2] if all_intervals else 365
+        # Also calculate mean for reference
+        mean_interval = sum(all_intervals) / len(all_intervals)
+        # Use median, but clamp to reasonable range
+        average_days = max(30, min(1095, int(round(median_interval))))
+        
+        return jsonify({
+            'average_days': average_days,
+            'count': len(all_intervals),
+            'facilities': facilities_with_intervals,
+            'mean_interval': int(round(mean_interval)),
+            'median_interval': int(round(median_interval))
+        })
         
     except Exception as e:
+        import traceback
+        print(f"Error in get_zip_average_interval: {e}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/similar-characteristics-interval/<state>', methods=['POST'])
