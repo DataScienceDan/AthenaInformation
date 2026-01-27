@@ -2994,10 +2994,49 @@ def get_county_deficiency_trends(state, county):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def extract_text_from_pdf(file_path):
+    """Extract text from PDF file."""
+    try:
+        import PyPDF2
+        with open(file_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+            return text.strip()
+    except ImportError:
+        # Fallback: try pdfplumber if PyPDF2 not available
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                text = ""
+                for page in pdf.pages:
+                    text += page.extract_text() + "\n"
+                return text.strip()
+        except ImportError:
+            return None
+    except Exception as e:
+        print(f"Error extracting text from PDF {file_path}: {e}")
+        return None
+
+def extract_text_from_docx(file_path):
+    """Extract text from DOCX file."""
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        return text.strip()
+    except ImportError:
+        return None
+    except Exception as e:
+        print(f"Error extracting text from DOCX {file_path}: {e}")
+        return None
+
 @app.route('/api/generate-schedule', methods=['POST'])
 def generate_schedule():
-    """Accepts { prompt: str } and returns { text: str, todoist_json: str }.
+    """Accepts { prompt: str, files: list } and returns { text: str, todoist_json: str }.
     Uses ChatGPT output and splits narrative from an embedded JSON block if present.
+    If files are provided, extracts text from them and includes in the prompt context.
     """
     try:
         data = request.get_json(silent=True) or {}
@@ -3005,10 +3044,60 @@ def generate_schedule():
         if not prompt:
             return jsonify({'error': 'Missing prompt'}), 400
 
+        # Get selected files
+        selected_files = data.get('files', [])
+        file_contents = {}
+        
+        # Extract text from selected files
+        if selected_files:
+            # Get the directory where the script is located
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            for filename in selected_files:
+                # Try multiple possible file paths
+                possible_paths = [
+                    filename,  # Direct filename
+                    os.path.join(os.getcwd(), filename),  # Current working directory
+                    os.path.join(script_dir, filename),  # Script directory
+                ]
+                
+                file_path = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        file_path = path
+                        break
+                
+                if file_path and os.path.exists(file_path):
+                    if filename.lower().endswith('.pdf'):
+                        text = extract_text_from_pdf(file_path)
+                        if text:
+                            file_contents[filename] = text
+                            print(f"Successfully extracted text from {filename}")
+                        else:
+                            print(f"Warning: Could not extract text from {filename}. Install PyPDF2 or pdfplumber for PDF support.")
+                    elif filename.lower().endswith('.docx'):
+                        text = extract_text_from_docx(file_path)
+                        if text:
+                            file_contents[filename] = text
+                            print(f"Successfully extracted text from {filename}")
+                        else:
+                            print(f"Warning: Could not extract text from {filename}. Install python-docx for DOCX support.")
+                else:
+                    print(f"Warning: File {filename} not found. Searched paths: {possible_paths}")
+        
+        # Build enhanced prompt with file contents
+        enhanced_prompt = prompt
+        if file_contents:
+            enhanced_prompt += "\n\n=== REFERENCE DOCUMENTS ===\n\n"
+            for filename, content in file_contents.items():
+                enhanced_prompt += f"\n--- {filename} ---\n{content}\n\n"
+            enhanced_prompt += "\n=== END REFERENCE DOCUMENTS ===\n\n"
+            enhanced_prompt += "Please consider the above reference documents when generating the schedule. "
+
         # Prefer API key sent from the browser, fall back to environment variable for deployments
         from openai import OpenAI
         import json, re
-        import os
+        # Note: os is already imported at module level
         api_key = (data.get('apiKey') or '').strip()
         if not api_key:
             api_key = os.getenv('OPENAI_API_KEY', '').strip()
@@ -3016,9 +3105,11 @@ def generate_schedule():
         if not api_key:
             return jsonify({'error': 'OpenAI API key not provided. Please enter it in the dashboard or set the OPENAI_API_KEY environment variable.'}), 500
         client = OpenAI(api_key=api_key)
+        # gpt-4o-mini: 200K TPM (handles large prompts); gpt-4o: 30K TPM; gpt-4-turbo: 30K TPM
+        schedule_model = os.getenv("OPENAI_SCHEDULE_MODEL", "gpt-4o-mini")
         response = client.chat.completions.create(
-            model="gpt-4o",  # Using gpt-4o (or change to "gpt-3.5-turbo" for cheaper option)
-            messages=[{"role": "user", "content": prompt}]
+            model=schedule_model,
+            messages=[{"role": "user", "content": enhanced_prompt}]
         )
         raw_text = response.choices[0].message.content or ''
 

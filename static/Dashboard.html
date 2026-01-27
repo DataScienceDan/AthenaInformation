@@ -880,6 +880,31 @@
             <div class="section-content">
             <div class="facility-info" style="margin-top: 10px;">
                 <div class="info-item" style="grid-column: 1 / -1;">
+                    <div class="info-label">Include Reference Files</div>
+                    <div class="info-value" style="display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="filePatientSatisfaction" checked style="cursor: pointer;">
+                            <span>Patient Satisfaction Survey Outline.pdf</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="fileSurveyExample" checked style="cursor: pointer;">
+                            <span>Survey Example.pdf</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="fileFacilityVisit" checked style="cursor: pointer;">
+                            <span>Facility Visit Report Final.docx</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="fileCompleteManual" checked style="cursor: pointer;">
+                            <span>COMPLETE MERGED MANUAL.pdf</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="fileGuidebook" checked style="cursor: pointer;">
+                            <span>Guidebook.pdf</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="info-item" style="grid-column: 1 / -1;">
                     <div class="info-label">Generated Prompt</div>
                     <div class="info-value">
                         <textarea id="promptTextarea" rows="12" style="width:100%; font-family: monospace;"> </textarea>
@@ -3832,10 +3857,28 @@
 
                         alert('The schedule generation request has been submitted. This may take 2-3 minutes to complete. You will be notified when the result is ready.');
 
+                        // Collect selected files
+                        const selectedFiles = [];
+                        if (document.getElementById('filePatientSatisfaction')?.checked) {
+                            selectedFiles.push('Patient Satisfaction Survey Outline.pdf');
+                        }
+                        if (document.getElementById('fileSurveyExample')?.checked) {
+                            selectedFiles.push('Survey Example.pdf');
+                        }
+                        if (document.getElementById('fileFacilityVisit')?.checked) {
+                            selectedFiles.push('Facility Visit Report Final.docx');
+                        }
+                        if (document.getElementById('fileCompleteManual')?.checked) {
+                            selectedFiles.push('COMPLETE MERGED MANUAL.pdf');
+                        }
+                        if (document.getElementById('fileGuidebook')?.checked) {
+                            selectedFiles.push('Guidebook.pdf');
+                        }
+
                         const resp = await fetch('/api/generate-schedule', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ prompt, apiKey })
+                            body: JSON.stringify({ prompt, apiKey, files: selectedFiles })
                         });
                         if (!resp.ok) {
                             const t = await resp.text();
