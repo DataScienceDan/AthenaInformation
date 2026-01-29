@@ -336,6 +336,33 @@
             flex: 1;
         }
         
+        /* Year tick marks for Health Survey Dates timeline */
+        .timeline-year-tick-container {
+            position: absolute;
+            top: 5px;
+            transform: translateX(-50%);
+            text-align: center;
+            font-size: 0.75rem;
+            color: #666;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .timeline-year-label {
+            font-size: 0.75rem;
+            margin-bottom: 3px;
+            order: 1;
+        }
+        
+        .timeline-year-tick {
+            width: 2px;
+            height: 25px;
+            background: #999;
+            order: 2;
+        }
+        
         .timeline-info {
             background: white;
             border: 1px solid #e9ecef;
@@ -2324,6 +2351,17 @@
                 const existingMarkers = timeline.querySelectorAll('.timeline-marker, .forecast-marker');
                 existingMarkers.forEach(marker => marker.remove());
                 
+                // Add year ticks to forecast timeline
+                const startDate = new Date('2016-01-01');
+                const endDate = new Date('2027-12-31');
+                addYearTicksToTimeline(timeline, startDate, endDate);
+                
+                // Clear timeline scale items
+                const timelineScale = timeline.querySelector('.timeline-scale');
+                if (timelineScale) {
+                    timelineScale.innerHTML = '';
+                }
+                
                 // Add historical markers using the exact same logic as Section 2
                 surveyDates.forEach((dateInfo) => {
                     addHistoricalMarkerToForecastTimeline(timeline, dateInfo);
@@ -2476,6 +2514,15 @@
             const startDate = new Date('2016-01-01');
             const endDate = new Date('2027-12-31');
             const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+            
+            // Add year ticks to average forecast timeline
+            addYearTicksToTimeline(timeline, startDate, endDate);
+            
+            // Clear timeline scale items
+            const timelineScale = timeline.querySelector('.timeline-scale');
+            if (timelineScale) {
+                timelineScale.innerHTML = '';
+            }
             
             // Add historical survey dates in green
             surveyDates.forEach(dateInfo => {
@@ -2947,6 +2994,15 @@
             const endDate = new Date(today);
             endDate.setMonth(today.getMonth() + 15);
             const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+            
+            // Add year ticks to peer timeline
+            addYearTicksToTimeline(timeline, startDate, endDate);
+            
+            // Clear timeline scale items
+            const timelineScale = timeline.querySelector('.timeline-scale');
+            if (timelineScale) {
+                timelineScale.innerHTML = '';
+            }
 
             // Group markers by position to detect overlaps
             const positionGroups = new Map();
@@ -3090,6 +3146,39 @@
            This function filters by CCN, deduplicates dates, and shows
            facility names matching the CCN from Section 1.
            ============================================================ */
+        // Helper function to add year ticks to any timeline
+        function addYearTicksToTimeline(timelineElement, startDate, endDate) {
+            if (!timelineElement) return;
+            
+            // Remove any existing year tick containers
+            timelineElement.querySelectorAll('.timeline-year-tick-container').forEach(el => el.remove());
+            
+            // Add small vertical year ticks at January 1 of each year in range
+            const firstYear = startDate.getFullYear();
+            const lastYear = endDate.getFullYear();
+            const msPerDay = 1000 * 60 * 60 * 24;
+            const totalDaysRange = (endDate - startDate) / msPerDay;
+            
+            for (let year = firstYear; year <= lastYear; year++) {
+                const jan1 = new Date(year, 0, 1);
+                if (jan1 < startDate || jan1 > endDate) continue;
+                
+                const daysFromStart = (jan1 - startDate) / msPerDay;
+                const position = (daysFromStart / totalDaysRange) * 100;
+                
+                const tickContainer = document.createElement('div');
+                tickContainer.className = 'timeline-year-tick-container';
+                tickContainer.style.left = `${Math.max(0, Math.min(100, position))}%`;
+                
+                tickContainer.innerHTML = `
+                    <div class="timeline-year-label">${year}</div>
+                    <div class="timeline-year-tick"></div>
+                `;
+                
+                timelineElement.appendChild(tickContainer);
+            }
+        }
+        
         function generateTimelineScale(startDate, endDate) {
             const scaleItems = [];
             const startYear = startDate.getFullYear();
@@ -3122,7 +3211,7 @@
         }
         
         async function addTimelineMarkers(surveyDates, facilityName, state, defaultCcn = '') {
-            // Calculate date range from earliest survey date to today
+            // Calculate date range from January of earliest survey date to the last survey date
             let startDate, endDate;
             let timelineScaleItems;
             
@@ -3137,7 +3226,6 @@
                     <div class="timeline">
                         <div class="timeline-line"></div>
                         <div class="timeline-scale">
-                            ${timelineScaleItems.map(item => `<div class="timeline-scale-item">${item}</div>`).join('')}
                         </div>
                     </div>
                     <div class="timeline-info">
@@ -3246,15 +3334,17 @@
             const uniqueSurveyDates = Array.from(dateMap.values())
                 .sort((a, b) => new Date(a.date) - new Date(b.date));
             
-            // Find earliest date from unique survey dates
+            // Find earliest and latest dates from unique survey dates
             const dates = uniqueSurveyDates.map(d => new Date(d.date)).filter(d => !isNaN(d.getTime()));
             if (dates.length === 0) {
                 endDate = new Date();
                 startDate = new Date(endDate.getFullYear() - 10, 0, 1);
             } else {
                 const earliestDate = new Date(Math.min(...dates.map(d => d.getTime())));
+                const latestDate = new Date(Math.max(...dates.map(d => d.getTime())));
                 startDate = new Date(earliestDate.getFullYear(), 0, 1); // January 1st of earliest year
-                endDate = new Date(); // Today
+                endDate = new Date(latestDate.getTime());
+                endDate.setFullYear(endDate.getFullYear() + 1); // One year after last survey date
             }
             
             timelineScaleItems = generateTimelineScale(startDate, endDate);
@@ -3265,7 +3355,37 @@
             // Update timeline scale
             const timelineScale = timeline.querySelector('.timeline-scale');
             if (timelineScale) {
-                timelineScale.innerHTML = timelineScaleItems.map(item => `<div class="timeline-scale-item">${item}</div>`).join('');
+                // Clear any existing scale content
+                timelineScale.innerHTML = '';
+            }
+            
+            // Remove any existing year tick containers from timeline
+            timeline.querySelectorAll('.timeline-year-tick-container').forEach(el => el.remove());
+            
+            // Add small vertical year ticks at January 1 of each year in range
+            // Append directly to timeline (not timeline-scale) so they appear inside the timeline box
+            const firstYear = startDate.getFullYear();
+            const lastYear = endDate.getFullYear();
+            const msPerDay = 1000 * 60 * 60 * 24;
+            const totalDaysRange = (endDate - startDate) / msPerDay;
+            
+            for (let year = firstYear; year <= lastYear; year++) {
+                const jan1 = new Date(year, 0, 1);
+                if (jan1 < startDate || jan1 > endDate) continue;
+                
+                const daysFromStart = (jan1 - startDate) / msPerDay;
+                const position = (daysFromStart / totalDaysRange) * 100;
+                
+                const tickContainer = document.createElement('div');
+                tickContainer.className = 'timeline-year-tick-container';
+                tickContainer.style.left = `${Math.max(0, Math.min(100, position))}%`;
+                
+                tickContainer.innerHTML = `
+                    <div class="timeline-year-label">${year}</div>
+                    <div class="timeline-year-tick"></div>
+                `;
+                
+                timeline.appendChild(tickContainer);
             }
             
             // Display CCN from Section 1
@@ -3330,9 +3450,10 @@
                 const position = (daysFromStart / totalDays) * 100;
                 marker.style.left = `${Math.max(0, Math.min(100, position))}%`;
                 
+                // Add date label for this marker
                 const dateLabel = document.createElement('div');
                 dateLabel.className = 'timeline-date';
-                dateLabel.textContent = new Date(dateInfo.date).toLocaleDateString();
+                dateLabel.textContent = surveyDate.toLocaleDateString();
                 marker.appendChild(dateLabel);
                 
                 marker.addEventListener('click', () => {
