@@ -170,7 +170,8 @@
             top: 100%;
             left: 0;
             right: 0;
-            max-height: 280px;
+            max-height: 450px;
+            min-height: 120px;
             overflow-y: auto;
             background: white;
             border: 2px solid #667eea;
@@ -184,9 +185,13 @@
             display: block;
         }
         .facility-dropdown-option {
-            padding: 10px 12px;
+            padding: 12px 14px;
             cursor: pointer;
             font-size: 15px;
+            line-height: 1.4;
+            min-height: 44px;
+            white-space: normal;
+            word-wrap: break-word;
             border-bottom: 1px solid #f0f0f0;
         }
         .facility-dropdown-option:hover,
@@ -200,6 +205,9 @@
             padding: 12px;
             color: #6c757d;
             font-style: italic;
+        }
+        .facility-selection-content {
+            overflow: visible;
         }
         
         .form-row {
@@ -627,7 +635,7 @@
                 <span class="section-header-content">Facility Selection</span>
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
-            <div class="section-content">
+            <div class="section-content facility-selection-content">
             <p style="margin-bottom: 20px; color: #555; line-height: 1.6;">
                 Select a state to load facilities, then choose a facility to explore survey timelines, peer comparisons, forecasts, and detailed facility information. 
                 Use the facility search box to type and filter by facility name for quick lookup.
