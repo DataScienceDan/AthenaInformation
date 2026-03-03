@@ -131,6 +131,77 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
         
+        /* Facility type-ahead combobox */
+        .facility-combobox-wrapper {
+            position: relative;
+            width: 100%;
+        }
+        .facility-combobox-wrapper input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            padding-right: 36px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            background-color: white;
+            transition: border-color 0.3s ease;
+        }
+        .facility-combobox-wrapper input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .facility-combobox-wrapper input[type="text"]:disabled {
+            background-color: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
+        }
+        .facility-combobox-wrapper .combobox-arrow {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+            color: #6c757d;
+            font-size: 12px;
+        }
+        .facility-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 280px;
+            overflow-y: auto;
+            background: white;
+            border: 2px solid #667eea;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            display: none;
+        }
+        .facility-dropdown.visible {
+            display: block;
+        }
+        .facility-dropdown-option {
+            padding: 10px 12px;
+            cursor: pointer;
+            font-size: 15px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .facility-dropdown-option:hover,
+        .facility-dropdown-option.highlighted {
+            background-color: #f0f4ff;
+        }
+        .facility-dropdown-option:last-child {
+            border-bottom: none;
+        }
+        .facility-dropdown-empty {
+            padding: 12px;
+            color: #6c757d;
+            font-style: italic;
+        }
+        
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -557,6 +628,10 @@
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
+            <p style="margin-bottom: 20px; color: #555; line-height: 1.6;">
+                Select a state to load facilities, then choose a facility to explore survey timelines, peer comparisons, forecasts, and detailed facility information. 
+                Use the facility search box to type and filter by facility name for quick lookup.
+            </p>
             <div class="form-row">
                 <div class="form-group">
                     <label for="stateSelect">Select State:</label>
@@ -565,10 +640,15 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="facilitySelect">Select Facility:</label>
-                    <select id="facilitySelect" onchange="onFacilityChange()" disabled>
-                        <option value="">Choose a facility...</option>
-                    </select>
+                    <label for="facilitySearchInput">Select Facility:</label>
+                    <div class="facility-combobox-wrapper">
+                        <input type="text" id="facilitySearchInput" placeholder="Type to search facilities..." autocomplete="off" disabled />
+                        <span class="combobox-arrow">▼</span>
+                        <select id="facilitySelect" aria-hidden="true" tabindex="-1" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">
+                            <option value="">Choose a facility...</option>
+                        </select>
+                        <div class="facility-dropdown" id="facilityDropdown" role="listbox"></div>
+                    </div>
                 </div>
             </div>
             
@@ -1614,6 +1694,104 @@
             }
         }
         
+        function getFacilityName(f) {
+            return f['Provider Name'] || f['provider_name'] || f['Facility Name'] || f['facility_name'] || f['Name'] || f['name'] || 'Unknown Facility';
+        }
+        function getFacilityId(f, index) {
+            return f.unique_id !== undefined && f.unique_id !== null ? f.unique_id : (f['CMS Certification Number (CCN)'] || f['CMS Certification Number'] || f.CCN || f.id || index);
+        }
+        
+        function setupFacilityCombobox() {
+            const facilitySearchInput = document.getElementById('facilitySearchInput');
+            const facilityDropdown = document.getElementById('facilityDropdown');
+            const facilitySelect = document.getElementById('facilitySelect');
+            if (!facilitySearchInput || !facilityDropdown || !facilitySelect) return;
+            
+            let highlightedIndex = -1;
+            let blurTimeout = null;
+            
+            function filterAndShowOptions() {
+                const q = (facilitySearchInput.value || '').trim().toLowerCase();
+                const sorted = [...(facilitiesData || [])].sort((a, b) => getFacilityName(a).localeCompare(getFacilityName(b)));
+                const filtered = q ? sorted.filter(f => getFacilityName(f).toLowerCase().includes(q)) : sorted;
+                highlightedIndex = filtered.length > 0 ? 0 : -1;
+                renderDropdownOptions(filtered);
+                facilityDropdown.classList.add('visible');
+            }
+            
+            function renderDropdownOptions(facilities) {
+                facilityDropdown.innerHTML = '';
+                if (!facilities || facilities.length === 0) {
+                    facilityDropdown.innerHTML = '<div class="facility-dropdown-empty">No facilities match</div>';
+                    return;
+                }
+                facilities.forEach((f, idx) => {
+                    const opt = document.createElement('div');
+                    opt.className = 'facility-dropdown-option' + (idx === highlightedIndex ? ' highlighted' : '');
+                    opt.dataset.facilityId = String(getFacilityId(f, idx));
+                    opt.dataset.facilityName = getFacilityName(f);
+                    opt.setAttribute('role', 'option');
+                    opt.textContent = getFacilityName(f);
+                    opt.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        selectOption(opt);
+                    });
+                    facilityDropdown.appendChild(opt);
+                });
+            }
+            
+            function selectOption(opt) {
+                if (!opt || !opt.dataset.facilityId) return;
+                facilitySelect.value = opt.dataset.facilityId;
+                facilitySearchInput.value = opt.dataset.facilityName;
+                facilityDropdown.classList.remove('visible');
+                onFacilityChange();
+            }
+            function selectHighlighted() {
+                const opts = facilityDropdown.querySelectorAll('.facility-dropdown-option');
+                if (highlightedIndex >= 0 && opts[highlightedIndex]) {
+                    selectOption(opts[highlightedIndex]);
+                }
+            }
+            
+            facilitySearchInput.addEventListener('input', () => {
+                if (facilitySearchInput.disabled) return;
+                filterAndShowOptions();
+            });
+            facilitySearchInput.addEventListener('focus', () => {
+                if (facilitySearchInput.disabled) return;
+                filterAndShowOptions();
+            });
+            facilitySearchInput.addEventListener('blur', () => {
+                blurTimeout = setTimeout(() => facilityDropdown.classList.remove('visible'), 150);
+            });
+            facilitySearchInput.addEventListener('keydown', (e) => {
+                if (facilitySearchInput.disabled) return;
+                const opts = facilityDropdown.querySelectorAll('.facility-dropdown-option');
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (opts.length) {
+                        highlightedIndex = (highlightedIndex + 1) % opts.length;
+                        opts.forEach((o, i) => o.classList.toggle('highlighted', i === highlightedIndex));
+                        opts[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (opts.length) {
+                        highlightedIndex = highlightedIndex <= 0 ? opts.length - 1 : highlightedIndex - 1;
+                        opts.forEach((o, i) => o.classList.toggle('highlighted', i === highlightedIndex));
+                        opts[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+                    }
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (facilityDropdown.classList.contains('visible')) selectHighlighted();
+                } else if (e.key === 'Escape') {
+                    facilityDropdown.classList.remove('visible');
+                }
+            });
+            facilityDropdown.addEventListener('mousedown', (e) => e.preventDefault()); // Prevent blur before click
+        }
+        
         async function onStateChange() {
             const stateSelect = document.getElementById('stateSelect');
             const facilitySelect = document.getElementById('facilitySelect');
@@ -1621,9 +1799,19 @@
             
             const selectedState = stateSelect.value;
             
+            const facilitySearchInput = document.getElementById('facilitySearchInput');
+            const facilityDropdown = document.getElementById('facilityDropdown');
+            
             if (!selectedState) {
                 facilitySelect.disabled = true;
                 facilitySelect.innerHTML = '<option value="">Choose a facility...</option>';
+                facilitySelect.value = '';
+                if (facilitySearchInput) {
+                    facilitySearchInput.value = '';
+                    facilitySearchInput.placeholder = 'Choose a facility...';
+                    facilitySearchInput.disabled = true;
+                }
+                if (facilityDropdown) facilityDropdown.classList.remove('visible');
                 facilityInfo.style.display = 'none';
                 
                 // Clear timeline
@@ -1640,6 +1828,12 @@
                 // Show loading state
                 facilitySelect.innerHTML = '<option value="">Loading facilities...</option>';
                 facilitySelect.disabled = true;
+                if (facilitySearchInput) {
+                    facilitySearchInput.value = '';
+                    facilitySearchInput.placeholder = 'Loading facilities...';
+                    facilitySearchInput.disabled = true;
+                }
+                if (facilityDropdown) facilityDropdown.classList.remove('visible');
                 
                 // Fetch facilities for the selected state
                 const response = await fetch(`/api/facilities/${selectedState}`);
@@ -1683,6 +1877,12 @@
                 });
                 
                 facilitySelect.disabled = false;
+                if (facilitySearchInput) {
+                    facilitySearchInput.value = '';
+                    facilitySearchInput.placeholder = 'Type to search facilities...';
+                    facilitySearchInput.disabled = false;
+                }
+                if (facilityDropdown) facilityDropdown.classList.remove('visible');
                 facilityInfo.style.display = 'none';
                 
                 // Clear timeline
@@ -1696,6 +1896,10 @@
                 console.error('Error fetching facilities:', error);
                 facilitySelect.innerHTML = '<option value="">Error loading facilities</option>';
                 facilitySelect.disabled = true;
+                if (facilitySearchInput) {
+                    facilitySearchInput.placeholder = 'Error loading facilities';
+                    facilitySearchInput.disabled = true;
+                }
             }
         }
         
@@ -3786,6 +3990,13 @@
         // Initialize the page
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Dashboard loaded successfully');
+            
+            // Setup facility type-ahead combobox
+            try {
+                setupFacilityCombobox();
+            } catch (error) {
+                console.error('Error setting up facility combobox:', error);
+            }
             
             // Populate state dropdown from API FIRST (critical for user interaction)
             console.log('Attempting to populate state dropdown...');
