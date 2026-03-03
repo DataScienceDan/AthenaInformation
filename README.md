@@ -10,6 +10,11 @@ A comprehensive web-based dashboard for analyzing healthcare facility survey dat
 - **Facility Information Display**: Shows CMS Certification Number (CCN), Provider Name, Address, County, Ratings, and other details
 - **Interactive Map**: Visual representation of facilities and survey dates
 
+### Google Reviews
+- **90-Day Moving Average Sentiment**: Bar chart showing rolling average of review ratings over 3-month windows (past year)
+- **Real Data**: When CCN matches in `CCNxref.xlsx` (column D), uses corresponding FacilityNumber (column C) to load reviews from `GoogleReviews*.csv` (Storecode column). Displays Date Posted, Review, Rating, and URL (as hyperlink).
+- **Demo Fallback**: If no CCN match, displays sample reviews—no external API required
+
 ### Section 2: Health Survey Dates
 - **Timeline Visualization**: Interactive timeline showing all historical survey dates (2016-2027)
 - **Deduplication**: Automatically removes duplicate survey dates
@@ -111,6 +116,17 @@ A comprehensive web-based dashboard for analyzing healthcare facility survey dat
    - Used for deficiency analysis and trends
    - If this file is large, the application will **automatically split it into 25,000-row chunk files** (`health_deficiencies_part1.csv`, `health_deficiencies_part2.csv`, ...) on first run and rename the original to `health_deficiencies_bak.csv` (which is ignored by Git). All parts are then concatenated in memory into a single DataFrame for analysis.
 
+### Optional: Google Reviews
+
+4. **CCNxref.xlsx**
+   - Maps CCN (column D) to FacilityNumber (column C)
+   - When a selected facility's CCN matches, the corresponding FacilityNumber is used to look up reviews
+
+5. **GoogleReviews*.csv**
+   - Any CSV file whose name begins with `GoogleReviews`
+   - Must include: `Storecode`, `Date Posted`, `Review`, `Rating`, `URL`
+   - Rows where `Storecode` equals the FacilityNumber from CCNxref are displayed
+
 ## API Endpoints
 
 - `GET /` - Main dashboard page
@@ -123,6 +139,7 @@ A comprehensive web-based dashboard for analyzing healthcare facility survey dat
 - `GET /api/county-monthly-surveys/<state>/<county>` - Get monthly survey histogram for county
 - `GET /api/zip-monthly-surveys/<state>/<zip>` - Get monthly survey histogram for ZIP
 - `GET /api/provider-names/<ccn>` - Get all historical provider names for a CCN
+- `GET /api/google-reviews` - Get reviews and moving average sentiment for a facility (query params: name, ccn). Uses CCNxref.xlsx and GoogleReviews*.csv when CCN matches; otherwise demo data.
 - `POST /api/generate-schedule` - Generate schedule from prompt
 
 ## File Structure

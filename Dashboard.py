@@ -837,6 +837,279 @@ def get_facilities_by_state(state):
         print(f"Error filtering facilities by state: {e}")
         return jsonify({'error': str(e)}), 500
 
+def _normalize_ccn_for_lookup(val):
+    """Normalize CCN to 6-digit string for consistent lookup. Handles Excel floats (345388.0)."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    try:
+        # Excel stores as float 345388.0; convert to int then string
+        return str(int(float(val))).zfill(6)
+    except (ValueError, TypeError):
+        s = str(val).strip().replace('.0', '').lstrip('0')
+        return s.zfill(6) if s else None
+
+def _load_ccn_xref():
+    """Load CCN->FacilityNumber mapping from CCNxref.xlsx. Column D=CCN, Column C=FacilityNumber."""
+    xref_path = 'CCNxref.xlsx'
+    if not os.path.exists(xref_path):
+        return None
+    try:
+        df = pd.read_excel(xref_path)
+        if df.empty or len(df.columns) < 4:
+            return None
+        # Use column names if present (FacilityNumber, CCN), else positions C=2, D=3
+        if 'CCN' in df.columns and 'FacilityNumber' in df.columns:
+            ccn_col = df['CCN']
+            fac_col = df['FacilityNumber']
+        else:
+            ccn_col = df.iloc[:, 3]
+            fac_col = df.iloc[:, 2]
+        mapping = {}
+        for ccn, fac in zip(ccn_col, fac_col):
+            if pd.isna(ccn) or pd.isna(fac):
+                continue
+            ccn_str = _normalize_ccn_for_lookup(ccn)
+            fac_str = str(int(fac)) if isinstance(fac, (int, float)) and not pd.isna(fac) else str(fac).strip()
+            if ccn_str and fac_str:
+                mapping[ccn_str] = fac_str
+        return mapping if mapping else None
+    except Exception as e:
+        print(f"Error loading CCNxref.xlsx: {e}")
+        return None
+
+def _json_safe(val, default=''):
+    """Convert value to JSON-serializable form. NaN/NA become default."""
+    if val is None:
+        return default
+    try:
+        if pd.isna(val):
+            return default
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, float) and val != val:  # NaN check
+        return default
+    return val
+
+def _load_google_reviews_for_facility(facility_number):
+    """Load reviews from all GoogleReviews*.csv where Storecode matches facility_number."""
+    csv_files = sorted(glob.glob('GoogleReviews*.csv'))
+    if not csv_files:
+        return []
+    rows = []
+    for fpath in csv_files:
+        try:
+            df = pd.read_csv(fpath)
+            if 'Storecode' not in df.columns:
+                continue
+            # Match Storecode (may be int or str in CSV)
+            mask = df['Storecode'].astype(str).str.strip() == str(facility_number).strip()
+            subset = df[mask]
+            for _, row in subset.iterrows():
+                rows.append({
+                    'date_posted': row.get('Date Posted', ''),
+                    'review': row.get('Review', ''),
+                    'rating': row.get('Rating', None),
+                    'url': row.get('URL', ''),
+                    'reviewer': row.get('Reviewer Name', '')
+                })
+        except Exception as e:
+            print(f"Error reading {fpath}: {e}")
+            continue
+    return rows
+
+def _to_naive_ts(ts):
+    """Convert timestamp to timezone-naive for consistent comparison."""
+    if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+        return ts
+    t = pd.Timestamp(ts)
+    if getattr(t, 'tz', None) is not None:
+        try:
+            return t.tz_localize(None)
+        except Exception:
+            return pd.Timestamp(t.to_pydatetime().replace(tzinfo=None))
+    return t
+
+def _reviews_to_moving_avg(reviews):
+    """Compute 90-day moving average from review list with Date Posted and Rating."""
+    if not reviews:
+        return []
+    # Use timezone-naive timestamps to avoid tz-aware vs tz-naive comparison errors
+    now = _to_naive_ts(pd.Timestamp.now())
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    parsed = []
+    for r in reviews:
+        try:
+            dt = _to_naive_ts(pd.to_datetime(r.get('date_posted', '')))
+            if pd.isna(dt):
+                continue
+            rating = r.get('rating')
+            if rating is not None and not pd.isna(rating):
+                try:
+                    rating = float(rating)
+                    if 1 <= rating <= 5:
+                        parsed.append({'date': dt, 'rating': rating})
+                except (TypeError, ValueError):
+                    pass
+        except Exception:
+            pass
+    if not parsed:
+        return []
+    parsed.sort(key=lambda x: x['date'])
+    cutoff_start = now - pd.DateOffset(months=12)
+    window_days = 90
+    moving_avg = []
+    for m_offset in range(12, -1, -1):
+        sample_date = now - pd.DateOffset(months=m_offset)
+        if sample_date < cutoff_start:
+            continue
+        window_start = sample_date - pd.DateOffset(days=window_days)
+        ratings_in_window = [p['rating'] for p in parsed if window_start <= p['date'] <= sample_date]
+        if ratings_in_window:
+            avg = round(sum(ratings_in_window) / len(ratings_in_window), 2)
+            moving_avg.append({
+                'label': f"{month_names[sample_date.month - 1]} {sample_date.year}",
+                'value': avg,
+                'month': sample_date.month,
+                'year': sample_date.year,
+                'count': len(ratings_in_window)
+            })
+    return moving_avg
+
+def _generate_demo_reviews(facility_name):
+    """Generate demo review data with sentiment spread over the past year for moving average chart."""
+    now = pd.Timestamp.utcnow()
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    
+    # Sample reviews with varied sentiment, spread across past 12 months
+    sample_reviews = [
+        {'text': 'The staff was very caring and attentive. My mother received excellent care during her stay.', 'rating': 5, 'author': 'Sarah M.'},
+        {'text': 'Clean facility but the food could use improvement. Nurses were friendly.', 'rating': 4, 'author': 'James K.'},
+        {'text': 'Disappointed with the response time when we pressed the call button. Room was clean.', 'rating': 3, 'author': 'Patricia L.'},
+        {'text': 'Wonderful rehabilitation services. Physical therapy team helped my father recover quickly.', 'rating': 5, 'author': 'Robert D.'},
+        {'text': 'Good experience overall. Some communication issues with administration.', 'rating': 4, 'author': 'Linda W.'},
+        {'text': 'The activities program keeps residents engaged. My dad enjoys the social events.', 'rating': 5, 'author': 'Michael T.'},
+        {'text': 'Needs more staff during evening hours. Care was adequate but slow at times.', 'rating': 3, 'author': 'Jennifer H.'},
+        {'text': 'Very compassionate team. They treated our family with respect during a difficult time.', 'rating': 5, 'author': 'David R.'},
+        {'text': 'Decent care but the building feels dated. Would recommend for short-term rehab.', 'rating': 4, 'author': 'Susan B.'},
+        {'text': 'Mixed experience. Some great nurses, others seemed overwhelmed.', 'rating': 3, 'author': 'Thomas N.'},
+        {'text': 'Best decision we made for our loved one. Professional and warm environment.', 'rating': 5, 'author': 'Nancy F.'},
+        {'text': 'Administration could improve. Clinical care was good.', 'rating': 4, 'author': 'Charles P.'},
+        {'text': 'Clean and well-maintained. Staff turnover seems high.', 'rating': 3, 'author': 'Karen S.'},
+        {'text': 'Excellent wound care. Nursing team went above and beyond.', 'rating': 5, 'author': 'William G.'},
+        {'text': 'Room for improvement in meal variety. Therapy services were top-notch.', 'rating': 4, 'author': 'Elizabeth C.'},
+    ]
+    
+    reviews_out = []
+    for i, r in enumerate(sample_reviews):
+        # Spread reviews over past 12 months (older first)
+        months_ago = 11 - (i % 12)
+        days_offset = (i * 7) % 28  # Vary day within month
+        dt = now - pd.DateOffset(months=months_ago, days=days_offset)
+        rel_time = dt.strftime('%Y-%m-%d')
+        reviews_out.append({
+            'text': r['text'],
+            'rating': r['rating'],
+            'author': r['author'],
+            'relative_time': rel_time,
+            'date': dt.isoformat()
+        })
+    
+    # Sort by date ascending for moving average
+    reviews_sorted = sorted(reviews_out, key=lambda x: x['date'])
+    
+    # Compute 90-day (3-month) moving average at monthly intervals
+    moving_avg = []
+    cutoff_start = now - pd.DateOffset(months=12)
+    window_days = 90
+    
+    # Sample at start of each month
+    for m_offset in range(12, -1, -1):
+        sample_date = now - pd.DateOffset(months=m_offset)
+        if sample_date < cutoff_start:
+            continue
+        window_start = sample_date - pd.DateOffset(days=window_days)
+        ratings_in_window = []
+        for rev in reviews_sorted:
+            rd = pd.to_datetime(rev['date'])
+            if window_start <= rd <= sample_date:
+                ratings_in_window.append(rev['rating'])
+        if ratings_in_window:
+            avg = round(sum(ratings_in_window) / len(ratings_in_window), 2)
+            moving_avg.append({
+                'label': f"{month_names[sample_date.month - 1]} {sample_date.year}",
+                'value': avg,
+                'month': sample_date.month,
+                'year': sample_date.year,
+                'count': len(ratings_in_window)
+            })
+    
+    return reviews_out, moving_avg
+
+@app.route('/api/google-reviews')
+def get_google_reviews():
+    """Return Google reviews and moving average sentiment for a facility.
+    Uses CCNxref.xlsx to map CCN->FacilityNumber, then GoogleReviews*.csv for real data.
+    Falls back to demo data if no CCN match."""
+    name = request.args.get('name', '').strip() or 'Selected Facility'
+    ccn_raw = request.args.get('ccn', '').strip()
+    
+    ccn_norm = _normalize_ccn_for_lookup(ccn_raw) if ccn_raw else None
+    
+    try:
+        # Try real data: CCN -> FacilityNumber -> GoogleReviews CSV
+        facility_number = None
+        if ccn_norm:
+            ccn_xref = _load_ccn_xref()
+            if ccn_xref and ccn_norm in ccn_xref:
+                facility_number = ccn_xref[ccn_norm]
+        
+        if facility_number is not None:
+            raw_reviews = _load_google_reviews_for_facility(facility_number)
+            if raw_reviews:
+                moving_avg = _reviews_to_moving_avg(raw_reviews)
+                reviews_out = []
+                for r in raw_reviews:
+                    date_val = _json_safe(r.get('date_posted'), '')
+                    date_iso = None
+                    if date_val:
+                        try:
+                            date_iso = pd.to_datetime(date_val).isoformat()
+                        except Exception:
+                            pass
+                    reviews_out.append({
+                        'text': _json_safe(r.get('review'), ''),
+                        'rating': _json_safe(r.get('rating'), None),
+                        'author': _json_safe(r.get('reviewer'), ''),
+                        'relative_time': str(date_val) if date_val else '',
+                        'date': date_iso,
+                        'url': _json_safe(r.get('url'), '') or ''
+                    })
+                return jsonify({
+                    'reviews': reviews_out,
+                    'moving_average_sentiment': moving_avg,
+                    'place_name': name,
+                    'place_found': True,
+                    'demo_mode': False
+                })
+        
+        # Fallback to demo data
+        reviews_out, moving_avg = _generate_demo_reviews(name)
+        return jsonify({
+            'reviews': reviews_out,
+            'moving_average_sentiment': moving_avg,
+            'place_name': name,
+            'place_found': True,
+            'demo_mode': True
+        })
+    except Exception as e:
+        print(f"Google reviews error: {e}")
+        return jsonify({
+            'reviews': [],
+            'moving_average_sentiment': [],
+            'error': str(e),
+            'place_found': False
+        }), 200
+
 @app.route('/api/ml-forecast', methods=['POST'])
 def ml_forecast():
     """Predict next survey date using a simple ML-style regression on historical intervals with fallbacks.
