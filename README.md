@@ -27,7 +27,7 @@ A comprehensive web-based dashboard for analyzing healthcare facility survey dat
 - **Color-Coded Markers**: Different colors for different facilities
 - **Interactive Legend**: Click to highlight specific facilities
 
-### Section 4: Monthly Health Survey Dates
+### Monthly Health Survey Dates
 - **State Histogram**: Monthly distribution of surveys for the selected state
 - **County Histogram**: Monthly distribution for the facility's county
 - **ZIP Code Histogram**: Monthly distribution for the facility's ZIP code
@@ -37,13 +37,13 @@ A comprehensive web-based dashboard for analyzing healthcare facility survey dat
 - **County Trends**: Deficiency frequency by category at county level
 - **ZIP Trends**: Deficiency frequency by category at ZIP code level
 
-### Section 6: Forecasts
+### Survey Visit Forecast
 - **Six Forecast Models**: Multiple prediction methods for next survey date
 - **Date Selection**: Calendar input for expected survey date (validates future dates only)
 - **Additional Information**: Text area for facility-specific context (mission, considerations)
 - **Dynamic Prompt Generation**: Adjusts schedule blocks based on time available
 
-### Section 7: Health Deficiencies Prompt Builder
+### Health Deficiencies Prompt Builder
 - **Facility Deficiencies**: Historical deficiencies for selected facility
 - **Peer Deficiencies**: Deficiencies from facilities in same ZIP code
 - **Trend Analysis**: Category-based deficiency trends

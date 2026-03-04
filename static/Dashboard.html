@@ -265,6 +265,53 @@
             margin-bottom: 8px;
             color: #667eea;
         }
+        .moving-avg-chart-area {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+        }
+        .moving-avg-y-axis {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 0 12px 24px 0;
+            font-size: 0.85rem;
+            color: #6c757d;
+            font-weight: 500;
+        }
+        .moving-avg-chart-inner {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .moving-avg-bars-wrap {
+            position: relative;
+            height: 180px;
+        }
+        .moving-avg-grid-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e1e5e9;
+            pointer-events: none;
+        }
+        .google-reviews-subsection {
+            margin-top: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .google-reviews-subsection h2 {
+            font-size: 1.2rem;
+            padding: 12px 15px;
+            margin-bottom: 0;
+            border-bottom: none;
+        }
+        .google-reviews-subsection .section-content {
+            padding: 15px;
+            border-top: 1px solid #f0f0f0;
+        }
         .demo-badge {
             display: inline-block;
             background: #f59e0b;
@@ -276,6 +323,8 @@
             font-weight: 600;
         }
         .moving-avg-bars {
+            position: relative;
+            z-index: 1;
             display: flex;
             align-items: flex-end;
             gap: 6px;
@@ -644,11 +693,44 @@
             border: 1px solid #e9ecef;
             border-radius: 6px;
             padding: 12px 16px 8px;
-            height: 200px;
             position: relative;
             overflow: hidden;
         }
+        .histogram-chart-area {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+            height: 200px;
+        }
+        .hist-y-axis {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 0 12px 24px 0;
+            font-size: 0.8rem;
+            color: #6c757d;
+            font-weight: 500;
+        }
+        .hist-chart-inner {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .hist-bars-wrap {
+            position: relative;
+            height: 200px;
+        }
+        .hist-grid-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e1e5e9;
+            pointer-events: none;
+        }
         .hist-bars {
+            position: relative;
+            z-index: 1;
             display: grid;
             grid-template-columns: repeat(12, 1fr);
             align-items: end;
@@ -835,7 +917,7 @@
         <!-- Section 4: Monthly Survey Histograms -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
-                <span class="section-header-content">Section 4: Monthly Health Survey Dates</span>
+                <span class="section-header-content">Monthly Health Survey Dates</span>
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
@@ -865,7 +947,7 @@
         <!-- Section 5: Interactive Map -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
-                <span class="section-header-content">Section 5: Interactive State Map with Survey Timeline</span>
+                <span class="section-header-content">Interactive State Map with Survey Timeline</span>
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
@@ -887,10 +969,10 @@
             </div>
         </div>
 
-        <!-- Section 6: Forecasts -->
+        <!-- Survey Visit Forecast -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
-                <span class="section-header-content">Section 6: Forecasts</span>
+                <span class="section-header-content">Survey Visit Forecast</span>
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
@@ -1100,7 +1182,7 @@
         <!-- Section 7: Placeholder for future content -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
-                <span class="section-header-content">Section 7: Health Deficiencies Prompt Builder</span>
+                <span class="section-header-content">Health Deficiencies Prompt Builder</span>
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
@@ -2340,7 +2422,7 @@
 
                 let html = '';
 
-                // Moving average sentiment chart
+                // Moving average sentiment chart with Y-axis
                 if (movingAvg.length > 0) {
                     const barsHtml = movingAvg.map(m => {
                         const h = Math.round((m.value / 5) * 160);
@@ -2351,16 +2433,34 @@
                         <div class="moving-avg-chart">
                             <h4>90-Day Moving Average Sentiment (past year)${isDemo ? '<span class="demo-badge">Demo</span>' : ''}</h4>
                             <p style="font-size:0.9rem; color:#6c757d; margin-bottom:12px;">Rolling average of review ratings (1-5 stars) over 3-month windows.</p>
-                            <div class="moving-avg-bars">${barsHtml}</div>
-                            <div class="sentiment-axis">${axisHtml}</div>
+                            <div class="moving-avg-chart-area">
+                                <div class="moving-avg-y-axis">
+                                    <span>5</span>
+                                    <span>4</span>
+                                    <span>3</span>
+                                    <span>2</span>
+                                    <span>1</span>
+                                </div>
+                                <div class="moving-avg-chart-inner">
+                                    <div class="moving-avg-bars-wrap">
+                                        <div class="moving-avg-grid-line" style="top:0"></div>
+                                        <div class="moving-avg-grid-line" style="top:25%"></div>
+                                        <div class="moving-avg-grid-line" style="top:50%"></div>
+                                        <div class="moving-avg-grid-line" style="top:75%"></div>
+                                        <div class="moving-avg-grid-line" style="top:100%"></div>
+                                        <div class="moving-avg-bars">${barsHtml}</div>
+                                    </div>
+                                    <div class="sentiment-axis">${axisHtml}</div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 }
 
-                // Reviews list
-                html += `<h4 style="margin-bottom:12px;">Reviews for ${placeName || 'this facility'}</h4>`;
+                // Reviews list - collapsible subsection
+                let reviewsHtml = '';
                 if (reviews.length === 0) {
-                    html += '<div class="placeholder">No reviews available for this facility.</div>';
+                    reviewsHtml = '<div class="placeholder">No reviews available for this facility.</div>';
                 } else {
                     // Sort by date descending (newest first) for display
                     const sorted = [...reviews].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -2368,7 +2468,7 @@
                         const ratingVal = r.rating != null ? Number(r.rating) : 0;
                         const stars = '★'.repeat(Math.round(ratingVal)) + '☆'.repeat(5 - Math.round(ratingVal));
                         const urlLink = r.url ? `<a href="${r.url.replace(/"/g, '&quot;')}" target="_blank" rel="noopener noreferrer" style="font-size:0.9rem; color:#667eea;">View on Google</a>` : '';
-                        html += `
+                        reviewsHtml += `
                             <div class="review-card">
                                 <div class="review-header">
                                     <span class="review-rating">${stars} ${ratingVal}</span>
@@ -2381,6 +2481,15 @@
                         `;
                     });
                 }
+                html += `
+                    <div class="section google-reviews-subsection">
+                        <h2 onclick="toggleSection(this)">
+                            <span class="section-header-content">Reviews for ${placeName || 'this facility'}</span>
+                            <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
+                        </h2>
+                        <div class="section-content">${reviewsHtml}</div>
+                    </div>
+                `;
                 container.innerHTML = html;
             } catch (e) {
                 console.error('Error fetching reviews:', e);
@@ -3300,16 +3409,41 @@
             const byLabel = Object.fromEntries((buckets || []).map(b => [b.label, b.count]));
             const ordered = monthOrder.map(lbl => ({ label: lbl, count: byLabel[lbl] || 0 }));
             const maxCount = Math.max(...ordered.map(b => b.count));
+            // Y-axis labels: 0 and up to 4 evenly spaced values, deduplicated
+            const yTicks = [];
+            if (maxCount <= 0) {
+                yTicks.push(0);
+            } else {
+                const seen = new Set();
+                for (let i = 0; i <= 4; i++) {
+                    const v = Math.round((i / 4) * maxCount);
+                    if (!seen.has(v)) { seen.add(v); yTicks.push(v); }
+                }
+                if (yTicks[yTicks.length - 1] !== maxCount) yTicks.push(maxCount);
+            }
+            const yAxisHtml = yTicks.slice().reverse().map(t => `<span>${t}</span>`).join('');
             const barsHtml = ordered.map(b => {
                 const h = maxCount > 0 ? Math.round((b.count / maxCount) * 200) : 0;
                 return `<div class=\"hist-bar\" title=\"${b.label}: ${b.count}\" style=\"height:${h}px\"></div>`;
             }).join('');
             const axisHtml = ordered.map(b => `<span>${b.label}</span>`).join('');
+            const gridLinesHtml = yTicks.map(v => {
+                const pct = maxCount > 0 ? (1 - v / maxCount) * 100 : 100;
+                return `<div class="hist-grid-line" style="top:${pct}%"></div>`;
+            }).join('');
             container.innerHTML = `
                 <div class="histogram">
-                    <div class="hist-bars">${barsHtml}</div>
+                    <div class="histogram-chart-area">
+                        <div class="hist-y-axis">${yAxisHtml}</div>
+                        <div class="hist-chart-inner">
+                            <div class="hist-bars-wrap">
+                                ${gridLinesHtml}
+                                <div class="hist-bars">${barsHtml}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hist-axis">${axisHtml}</div>
                 </div>
-                <div class="hist-axis">${axisHtml}</div>
             `;
         }
 
