@@ -969,6 +969,38 @@
             </div>
         </div>
 
+        <!-- Risk Profile Summary -->
+        <div class="section" id="riskProfileSection">
+            <h2 onclick="toggleSection(this)">
+                <span class="section-header-content">Risk Profile Summary</span>
+                <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
+            </h2>
+            <div class="section-content">
+                <div class="facility-info" style="margin-top: 10px;">
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <div class="info-label">Prompt</div>
+                        <div class="info-value">
+                            <textarea id="riskProfilePromptTextarea" rows="12" style="width:100%; font-family: inherit; padding: 12px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; min-height: 160px;">You are an auditor with American Healthcare Association.  Please summarize the risk profile of this care center based on the risk management data that you have consumed from the workbook RiskMgmtData_202506_20260302.xlsx.  
+
+In particular, match the CCN from the first section with column C of each worksheet in the workbook so that we are only considering the data contained in those rows.
+
+In the worksheet Alerts, use the column for AlertType, description, and the created date as input.  In the worksheet Incidents, use the column for IncType, IncDate, and Location corresponding to the CCN of the facility.</textarea>
+                            <p style="margin-top: 8px; font-size: 0.85rem; color: #6c757d;">Add any additional context or instructions above. The workbook RiskMgmtData_202506_20260302.xlsx will be attached when you submit.</p>
+                        </div>
+                    </div>
+                    <div class="info-item" style="grid-column: 1 / -1; display:flex; gap:10px;">
+                        <button id="getRiskProfileBtn" style="padding: 8px 16px; background: #10B981; color: white; border: none; border-radius: 4px; cursor: pointer;">Generate Risk Profile Summary</button>
+                    </div>
+                    <div class="info-item" style="grid-column: 1 / -1;">
+                        <div class="info-label">Result</div>
+                        <div class="info-value">
+                            <pre id="riskProfileOutput" style="white-space: pre-wrap; background:#f8f9fa; padding:12px; border:1px solid #e5e7eb; border-radius:4px; min-height:80px;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Survey Visit Forecast -->
         <div class="section">
             <h2 onclick="toggleSection(this)">
@@ -2136,6 +2168,7 @@
                 if (googleReviewsContainer) {
                     googleReviewsContainer.innerHTML = '<div class="placeholder">Select a facility to view Google reviews and monthly sentiment</div>';
                 }
+                updateRiskProfilePrompt(null);
                 return;
             }
             
@@ -2260,6 +2293,25 @@
                     // Ensure all historical survey dates for the selected facility are merged into map data
                     await mergeSelectedFacilitySurveysIntoMap(selectedFacility);
                 }
+                updateRiskProfilePrompt(selectedFacility);
+            }
+        }
+
+        const RISK_PROFILE_BASE_PROMPT = `You are an auditor with American Healthcare Association.  Please summarize the risk profile of this care center based on the risk management data that you have consumed from the workbook RiskMgmtData_202506_20260302.xlsx.  
+
+In particular, match the CCN from the first section with column C of each worksheet in the workbook so that we are only considering the data contained in those rows.
+
+In the worksheet Alerts, use the column for AlertType, description, and the created date as input.  In the worksheet Incidents, use the column for IncType, IncDate, and Location corresponding to the CCN of the facility.`;
+
+        function updateRiskProfilePrompt(facility) {
+            const ta = document.getElementById('riskProfilePromptTextarea');
+            if (!ta) return;
+            if (facility) {
+                const name = facility['Provider Name'] || facility['provider_name'] || facility['Facility Name'] || 'Selected Facility';
+                const ccn = facility['CMS Certification Number (CCN)'] || facility['CMS Certification Number'] || facility['CCN'] || facility['ccn'] || '';
+                ta.value = `Facility: ${name}, CCN: ${ccn}\n\n${RISK_PROFILE_BASE_PROMPT}`;
+            } else {
+                ta.value = RISK_PROFILE_BASE_PROMPT;
             }
         }
         
@@ -4522,6 +4574,76 @@
            REQUIRED: SECTION 8 GET SCHEDULE BUTTON FEEDBACK - DO NOT DELETE
            Provides user feedback when generating schedules.
            ============================================================ */
+        (function attachGetRiskProfileHandler(){
+            document.addEventListener('DOMContentLoaded', function() {
+                const btn = document.getElementById('getRiskProfileBtn');
+                if (!btn) return;
+                btn.addEventListener('click', async function() {
+                    try {
+                        const textarea = document.getElementById('riskProfilePromptTextarea');
+                        const prompt = textarea ? textarea.value.trim() : '';
+                        if (!prompt) { alert('Prompt is empty. Please enter or edit the prompt.'); return; }
+
+                        const facilitySelect = document.getElementById('facilitySelect');
+                        const selectedFacilityId = facilitySelect ? facilitySelect.value : '';
+                        let ccn = '';
+                        if (selectedFacilityId && typeof facilitiesData !== 'undefined' && Array.isArray(facilitiesData)) {
+                            const fac = facilitiesData.find(f => 
+                                (f.unique_id || f.id || f.CCN || f['CMS Certification Number'] || f['CMS Certification Number (CCN)']) == selectedFacilityId
+                            );
+                            if (fac) {
+                                ccn = fac['CMS Certification Number (CCN)'] || fac['CMS Certification Number'] || fac['CCN'] || fac['ccn'] || '';
+                            }
+                        }
+                        if (!ccn) {
+                            alert('Please select a facility in Section 1 (Facility Selection) before generating the risk profile. The data is filtered by the facility CCN.');
+                            return;
+                        }
+
+                        const apiKeyInput = document.getElementById('openaiApiKeyInput');
+                        const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+                        if (!apiKey) {
+                            alert('Please paste your OpenAI API key in the API Configuration box above.');
+                            if (apiKeyInput) apiKeyInput.focus();
+                            return;
+                        }
+
+                        btn.disabled = true;
+                        btn.textContent = 'Generating...';
+                        const out = document.getElementById('riskProfileOutput');
+                        if (out) out.textContent = 'Requesting risk profile summary...';
+
+                        const resp = await fetch('/api/generate-schedule', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                prompt,
+                                apiKey,
+                                files: ['RiskMgmtData_202506_20260302.xlsx'],
+                                ccn: String(ccn).trim()
+                            })
+                        });
+                        if (!resp.ok) {
+                            const t = await resp.text();
+                            throw new Error(`Failed to generate risk profile: ${resp.status} ${t}`);
+                        }
+                        const data = await resp.json();
+                        if (data.error) throw new Error(data.error);
+                        if (out) out.textContent = data.text || '';
+                        const section = document.getElementById('riskProfileSection');
+                        if (section && section.scrollIntoView) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch (e) {
+                        alert(e.message || String(e));
+                        const out = document.getElementById('riskProfileOutput');
+                        if (out) out.textContent = 'Error: ' + (e.message || String(e));
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = 'Generate Risk Profile Summary';
+                    }
+                });
+            });
+        })();
+
         (function attachGetScheduleHandler(){
             document.addEventListener('DOMContentLoaded', function() {
                 const btn = document.getElementById('getScheduleBtn');

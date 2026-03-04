@@ -3305,6 +3305,92 @@ def extract_text_from_docx(file_path):
         print(f"Error extracting text from DOCX {file_path}: {e}")
         return None
 
+def _normalize_ccn_for_match(val):
+    """Normalize CCN for comparison (handles Excel float 345388.0, str '345388', etc.)."""
+    if pd.isna(val):
+        return ''
+    s = str(val).strip()
+    if '.' in s and s.replace('.', '').isdigit():
+        try:
+            return str(int(float(s)))
+        except (ValueError, TypeError):
+            return s
+    return s
+
+def _pick_columns(df, want_names):
+    """Return list of column names from df that match want_names (case-insensitive)."""
+    cols = list(df.columns)
+    col_lower = {str(c).lower().strip(): c for c in cols}
+    out = []
+    for w in want_names:
+        wl = str(w).lower().strip()
+        if wl in col_lower:
+            out.append(col_lower[wl])
+        else:
+            for k, orig in col_lower.items():
+                if wl in k or k.replace('_', '') == wl.replace('_', ''):
+                    out.append(orig)
+                    break
+    return [c for c in out if c in cols]
+
+def extract_text_from_excel(file_path, max_chars=120000, ccn_filter=None, riskmgmt_columns_only=False):
+    """Extract text from Excel file (xlsx/xls). Converts each sheet to CSV-like text.
+    If ccn_filter is provided, filter each sheet to rows where column C (index 2) matches the CCN.
+    If riskmgmt_columns_only is True, for RiskMgmtData: only include Alerts (AlertType, description, created_date)
+    and Incidents (IncType, inc_date, Location) with CCN-filtered rows."""
+    try:
+        xl = pd.ExcelFile(file_path)
+        parts = []
+        max_per_sheet = max_chars // max(1, len(xl.sheet_names))
+        target_ccn = _normalize_ccn_for_match(ccn_filter) if ccn_filter is not None else None
+        for sheet_name in xl.sheet_names:
+            df = pd.read_excel(xl, sheet_name=sheet_name)
+            if df.empty:
+                continue
+            if target_ccn and len(df.columns) > 2:
+                col_c = df.iloc[:, 2]
+                mask = col_c.apply(lambda v: _normalize_ccn_for_match(v) == target_ccn)
+                df = df.loc[mask].reset_index(drop=True)
+                if df.empty:
+                    parts.append(f"[Sheet: {sheet_name}]\nNo rows matching CCN {target_ccn}")
+                    continue
+            if riskmgmt_columns_only and target_ccn:
+                # Cap rows (newest first) to stay well under 200k token limit
+                max_riskmgmt_rows = 1600
+                date_cols = _pick_columns(df, ['created_date', 'inc_date', 'IncDate'])
+                if date_cols:
+                    sort_col = date_cols[0]
+                    try:
+                        df[sort_col] = pd.to_datetime(df[sort_col], errors='coerce')
+                        df = df.dropna(subset=[sort_col]).sort_values(sort_col, ascending=False)
+                    except Exception:
+                        pass
+                if len(df) > max_riskmgmt_rows:
+                    df = df.head(max_riskmgmt_rows)
+                    trunc_note = f"\n\n[... showing most recent {max_riskmgmt_rows} rows; older rows omitted to stay under token limit ...]"
+                else:
+                    trunc_note = ""
+                if sheet_name == 'Alerts':
+                    keep = _pick_columns(df, ['AlertType', 'description', 'created_date'])
+                    df = df[[c for c in keep if c in df.columns]] if keep else df
+                elif sheet_name == 'Incidents':
+                    keep = _pick_columns(df, ['IncType', 'inc_date', 'IncDate', 'Location'])
+                    df = df[[c for c in keep if c in df.columns]] if keep else df
+                else:
+                    continue
+                text = df.to_csv(index=False, lineterminator='\n') + trunc_note
+            else:
+                text = df.to_csv(index=False, lineterminator='\n')
+                if len(text) > max_per_sheet:
+                    lines = text.split('\n')
+                    keep_rows = min(len(lines), 4000)
+                    text = '\n'.join(lines[:keep_rows]) + f"\n\n[... truncated: first {keep_rows} rows of {len(lines)} total ...]"
+            parts.append(f"[Sheet: {sheet_name}]\n{text}")
+        return "\n\n".join(parts) if parts else None
+    except Exception as e:
+        print(f"Error extracting text from Excel {file_path}: {e}")
+        return None
+
 @app.route('/api/generate-schedule', methods=['POST'])
 def generate_schedule():
     """Accepts { prompt: str, files: list } and returns { text: str, todoist_json: str }.
@@ -3317,8 +3403,9 @@ def generate_schedule():
         if not prompt:
             return jsonify({'error': 'Missing prompt'}), 400
 
-        # Get selected files
+        # Get selected files and optional CCN for filtering RiskMgmtData
         selected_files = data.get('files', [])
+        ccn_filter = (data.get('ccn') or '').strip() or None
         file_contents = {}
         
         # Extract text from selected files
@@ -3355,6 +3442,15 @@ def generate_schedule():
                             print(f"Successfully extracted text from {filename}")
                         else:
                             print(f"Warning: Could not extract text from {filename}. Install python-docx for DOCX support.")
+                    elif filename.lower().endswith(('.xlsx', '.xls')):
+                        use_ccn = ccn_filter if 'RiskMgmtData' in filename else None
+                        riskmgmt_cols = use_ccn and 'RiskMgmtData' in filename
+                        text = extract_text_from_excel(file_path, ccn_filter=use_ccn, riskmgmt_columns_only=riskmgmt_cols)
+                        if text:
+                            file_contents[filename] = text
+                            print(f"Successfully extracted text from {filename}")
+                        else:
+                            print(f"Warning: Could not extract text from {filename}.")
                 else:
                     print(f"Warning: File {filename} not found. Searched paths: {possible_paths}")
         
@@ -3365,7 +3461,7 @@ def generate_schedule():
             for filename, content in file_contents.items():
                 enhanced_prompt += f"\n--- {filename} ---\n{content}\n\n"
             enhanced_prompt += "\n=== END REFERENCE DOCUMENTS ===\n\n"
-            enhanced_prompt += "Please consider the above reference documents when generating the schedule. "
+            enhanced_prompt += "Please consider the above reference documents when responding. "
 
         # Prefer API key sent from the browser, fall back to environment variable for deployments
         from openai import OpenAI
