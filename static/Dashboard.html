@@ -700,7 +700,6 @@
             display: flex;
             align-items: stretch;
             gap: 0;
-            height: 200px;
         }
         .hist-y-axis {
             display: flex;
@@ -713,12 +712,14 @@
         }
         .hist-chart-inner {
             flex: 1;
+            min-width: 0;
             display: flex;
             flex-direction: column;
         }
         .hist-bars-wrap {
             position: relative;
             height: 200px;
+            flex-shrink: 0;
         }
         .hist-grid-line {
             position: absolute;
@@ -745,6 +746,8 @@
         }
         .hist-axis {
             margin-top: 8px;
+            padding-bottom: 4px;
+            flex-shrink: 0;
             display: grid;
             grid-template-columns: repeat(12, 1fr);
             font-size: 0.75rem;
@@ -921,21 +924,27 @@
                 <button class="collapse-btn" onclick="event.stopPropagation(); toggleSection(this.closest('h2'))"></button>
             </h2>
             <div class="section-content">
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px;">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px;">
                 <div>
-                    <h3>By State</h3>
+                    <h3 id="histogramStateTitle">By State</h3>
                     <div id="histogramContainer">
                         <div class="placeholder">Select a state to view monthly survey counts</div>
                     </div>
                 </div>
                 <div>
-                    <h3>By County</h3>
+                    <h3 id="histogramAreaTitle">By Area</h3>
+                    <div id="areaHistogramContainer">
+                        <div class="placeholder">Select a facility to view area survey counts</div>
+                    </div>
+                </div>
+                <div>
+                    <h3 id="histogramCountyTitle">By County</h3>
                     <div id="countyHistogramContainer">
                         <div class="placeholder">Select a facility to view county survey counts</div>
                     </div>
                 </div>
                 <div>
-                    <h3>By ZIP Code</h3>
+                    <h3 id="histogramZipTitle">By ZIP Code</h3>
                     <div id="zipHistogramContainer">
                         <div class="placeholder">Select a facility to view ZIP survey counts</div>
                     </div>
@@ -2168,6 +2177,16 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                 if (googleReviewsContainer) {
                     googleReviewsContainer.innerHTML = '<div class="placeholder">Select a facility to view Google reviews and monthly sentiment</div>';
                 }
+                const areaHistogramContainer = document.getElementById('areaHistogramContainer');
+                if (areaHistogramContainer) {
+                    areaHistogramContainer.innerHTML = '<div class="placeholder">Select a facility to view area survey counts</div>';
+                }
+                const areaTitle = document.getElementById('histogramAreaTitle');
+                if (areaTitle) areaTitle.textContent = 'By Area';
+                const countyTitle = document.getElementById('histogramCountyTitle');
+                if (countyTitle) countyTitle.textContent = 'By County';
+                const zipTitle = document.getElementById('histogramZipTitle');
+                if (zipTitle) zipTitle.textContent = 'By ZIP Code';
                 updateRiskProfilePrompt(null);
                 return;
             }
@@ -2206,7 +2225,41 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                 
                 // Use County/Parish from provider_info_data (now included by backend)
                 const countyValue = (selectedFacility['County/Parish'] && selectedFacility['County/Parish'] !== 'None') ? selectedFacility['County/Parish'] : 'Not available';
-                
+                const stateValue = selectedFacility['State'] || selectedFacility['state'] || 'Not available';
+                const cityValue = selectedFacility['City/Town'] || 'Not available';
+
+                // Build full address: street, city, state zip
+                const streetAddr = selectedFacility['Provider Address'] || 'Not available';
+                const fullAddress = [streetAddr, cityValue, stateValue, zip5].filter(Boolean).join(', ');
+
+                // Fetch area, overall rating by area, and last survey date
+                let areaValue = 'Not available';
+                let overallRatingByAreaValue = 'Not available';
+                let lastSurveyDateValue = 'Not available';
+                try {
+                    const lastDateRes = await fetch(`/api/last-survey-date/${encodeURIComponent(ccnValue)}`);
+                    if (lastDateRes.ok) {
+                        const lastDateData = await lastDateRes.json();
+                        if (lastDateData.last_survey_date) lastSurveyDateValue = lastDateData.last_survey_date;
+                    }
+                } catch (e) { console.error('Last survey date lookup failed:', e); }
+                if (stateValue !== 'Not available' && countyValue !== 'Not available') {
+                    try {
+                        const [areaRes, ratingRes] = await Promise.all([
+                            fetch(`/api/lookup-area/${encodeURIComponent(stateValue)}/${encodeURIComponent(countyValue)}`),
+                            fetch(`/api/area-overall-rating/${encodeURIComponent(stateValue)}/${encodeURIComponent(countyValue)}`)
+                        ]);
+                        if (areaRes.ok) {
+                            const areaData = await areaRes.json();
+                            if (areaData.area_name) areaValue = areaData.area_name;
+                        }
+                        if (ratingRes.ok) {
+                            const ratingData = await ratingRes.json();
+                            if (ratingData.overall_rating_by_area != null) overallRatingByAreaValue = String(ratingData.overall_rating_by_area);
+                        }
+                    } catch (e) { console.error('Area lookup failed:', e); }
+                }
+
                 console.log('Final county value:', countyValue);
                 console.log('County value type:', typeof countyValue);
 
@@ -2231,16 +2284,16 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                 const fields = [
                     { label: 'CMS Certification Number (CCN)', value: ccnValue },
                     { label: 'Provider Name', value: providerNamesDisplay },
-                    { label: 'Address', value: selectedFacility['Provider Address'] || 'Not available' },
-                    { label: 'City', value: selectedFacility['City/Town'] || 'Not available' },
+                    { label: 'Address', value: fullAddress },
                     { label: 'County', value: countyValue },
-                    { label: 'State', value: selectedFacility['State'] || selectedFacility['state'] || 'Not available' },
-                    { label: 'ZIP Code', value: zip5 || 'Not available' },
                     { label: 'Overall Rating', value: selectedFacility['Overall Rating'] || 'Not available' },
                     { label: 'Number of Certified Beds', value: selectedFacility['Number of Certified Beds'] || 'Not available' },
                     { label: 'Average Number of Residents per Day', value: selectedFacility['Average Number of Residents per Day'] || 'Not available' },
                     { label: 'Health Inspection Rating', value: selectedFacility['Health Inspection Rating'] || 'Not available' },
-                    { label: 'Staffing Rating', value: selectedFacility['Staffing Rating'] || 'Not available' }
+                    { label: 'Staffing Rating', value: selectedFacility['Staffing Rating'] || 'Not available' },
+                    { label: 'Last Health Survey Date', value: lastSurveyDateValue },
+                    { label: 'Area', value: areaValue },
+                    { label: 'Overall Rating by Area', value: overallRatingByAreaValue }
                 ];
 
                 console.log('Fields array:', fields);
@@ -2277,6 +2330,7 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                 const state = selectedFacility.State || selectedFacility['State'];
                 const county = selectedFacility['County/Parish'] || '';
                 const zip = selectedFacility['ZIP Code'] || selectedFacility['Zip'] || '';
+                renderAreaHistogram(state, county);
                 renderCountyHistogram(state, county);
                 renderZipHistogram(state, zip);
                 
@@ -3383,6 +3437,8 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
 
         async function renderStateHistogram(state) {
             try {
+                const titleEl = document.getElementById('histogramStateTitle');
+                if (titleEl) titleEl.textContent = state ? `By State: ${state}` : 'By State';
                 const container = document.getElementById('histogramContainer');
                 if (!container) {
                     console.error('histogramContainer not found');
@@ -3411,13 +3467,41 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
             }
         }
         
+        async function renderAreaHistogram(state, county) {
+            try {
+                const titleEl = document.getElementById('histogramAreaTitle');
+                const container = document.getElementById('areaHistogramContainer');
+                if (!container) return;
+                if (!state || !county) {
+                    if (titleEl) titleEl.textContent = 'By Area';
+                    container.innerHTML = '<div class="placeholder">Select a facility to view area survey counts</div>';
+                    return;
+                }
+                if (titleEl) titleEl.textContent = 'By Area: Loading...';
+                container.innerHTML = '<div class="loading">Loading area monthly survey counts...</div>';
+                const res = await fetch(`/api/area-monthly-surveys/${encodeURIComponent(state)}/${encodeURIComponent(county)}`);
+                if (!res.ok) {
+                    throw new Error('Failed to fetch area monthly histogram');
+                }
+                const data = await res.json();
+                if (titleEl) titleEl.textContent = data.area_name ? `By Area: ${data.area_name}` : `By Area: ${county}`;
+                drawHistogram(container, data.buckets || []);
+            } catch (e) {
+                const container = document.getElementById('areaHistogramContainer');
+                if (container) container.innerHTML = `<div class="error">${e.message}</div>`;
+            }
+        }
+
         async function renderCountyHistogram(state, county) {
             try {
+                const titleEl = document.getElementById('histogramCountyTitle');
                 const container = document.getElementById('countyHistogramContainer');
                 if (!county) {
+                    if (titleEl) titleEl.textContent = 'By County';
                     container.innerHTML = '<div class="placeholder">Select a facility to view county survey counts</div>';
                     return;
                 }
+                if (titleEl) titleEl.textContent = `By County: ${county}`;
                 container.innerHTML = '<div class="loading">Loading county monthly survey counts...</div>';
                 const res = await fetch(`/api/county-monthly-surveys/${encodeURIComponent(state)}/${encodeURIComponent(county)}`);
                 if (!res.ok) {
@@ -3433,11 +3517,15 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
         
         async function renderZipHistogram(state, zip) {
             try {
+                const titleEl = document.getElementById('histogramZipTitle');
                 const container = document.getElementById('zipHistogramContainer');
-                if (!zip) {
+                const zip5 = zip ? String(zip).replace(/\D/g, '').slice(0, 5) : '';
+                if (!zip5) {
+                    if (titleEl) titleEl.textContent = 'By ZIP Code';
                     container.innerHTML = '<div class="placeholder">Select a facility to view ZIP survey counts</div>';
                     return;
                 }
+                if (titleEl) titleEl.textContent = `By ZIP Code: ${zip5}`;
                 container.innerHTML = '<div class="loading">Loading ZIP monthly survey counts...</div>';
                 const res = await fetch(`/api/zip-monthly-surveys/${encodeURIComponent(state)}/${encodeURIComponent(zip)}`);
                 if (!res.ok) {
@@ -3492,9 +3580,9 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                                 ${gridLinesHtml}
                                 <div class="hist-bars">${barsHtml}</div>
                             </div>
+                            <div class="hist-axis">${axisHtml}</div>
                         </div>
                     </div>
-                    <div class="hist-axis">${axisHtml}</div>
                 </div>
             `;
         }

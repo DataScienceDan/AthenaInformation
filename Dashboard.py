@@ -18,6 +18,7 @@ app = Flask(__name__)
 facilities_data = None
 provider_info_data = None
 deficiencies_data = None
+state_area_county_data = None
 
 def download_data_file_if_missing():
     """Download required data files if they don't exist (for deployment)"""
@@ -482,6 +483,167 @@ STATE_ABBR = {
 }
 
 NAME_TO_ABBR = {v: k for k, v in STATE_ABBR.items()}
+
+def load_state_area_county():
+    """Load StateAreaCounty.xlsx (state, county, area). Returns df or None."""
+    global state_area_county_data
+    if state_area_county_data is not None:
+        return state_area_county_data
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'StateAreaCounty.xlsx')
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_excel(path)
+        cols = list(df.columns)
+        state_col = next((c for c in cols if str(c).lower().strip() == 'state'), None)
+        county_col = next((c for c in cols if str(c).lower().strip() == 'county'), None)
+        area_col = next((c for c in cols if str(c).lower().strip() == 'area'), None)
+        if state_col and county_col and area_col:
+            state_area_county_data = df[[state_col, county_col, area_col]].copy()
+            state_area_county_data.columns = ['state', 'county', 'area']
+            return state_area_county_data
+    except Exception as e:
+        print(f"Error loading StateAreaCounty.xlsx: {e}")
+    return None
+
+def _normalize_county(s):
+    s = str(s).strip().lower()
+    for suf in [' county', ' parish']:
+        if s.endswith(suf):
+            s = s[: -len(suf)].strip()
+    return s
+
+@app.route('/api/last-survey-date/<ccn>')
+def get_last_survey_date(ccn):
+    """Return the most recent health survey date for the facility (by CCN)."""
+    global deficiencies_data
+    if deficiencies_data is None:
+        return jsonify({'last_survey_date': None})
+    try:
+        ccn_norm = str(ccn).strip().lstrip('0').zfill(6)
+        ccn_col = next((c for c in ['CCN', 'CMS Certification Number (CCN)', 'CMS Certification Number', 'ccn'] if c in deficiencies_data.columns), None)
+        date_col = next((c for c in ['Health Survey Date', 'Survey Date', 'Date'] if c in deficiencies_data.columns), None)
+        if not ccn_col or not date_col:
+            return jsonify({'last_survey_date': None})
+        d = deficiencies_data[deficiencies_data[ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6) == ccn_norm][[date_col]]
+        d = d[pd.notna(d[date_col])]
+        if d.empty:
+            return jsonify({'last_survey_date': None})
+        dates = pd.to_datetime(d[date_col], errors='coerce').dropna()
+        if dates.empty:
+            return jsonify({'last_survey_date': None})
+        last = dates.max()
+        return jsonify({'last_survey_date': last.strftime('%Y-%m-%d')})
+    except Exception as e:
+        return jsonify({'last_survey_date': None, 'error': str(e)})
+
+@app.route('/api/lookup-area/<state>/<county>')
+def lookup_area(state, county):
+    """Look up area name from StateAreaCounty.xlsx by state and county."""
+    sac = load_state_area_county()
+    if sac is None:
+        return jsonify({'area_name': None})
+    try:
+        state_aliases = get_state_aliases(state)
+        county_norm = _normalize_county(county)
+        sac_state = sac[sac['state'].astype(str).str.strip().str.lower().isin([a.lower() for a in state_aliases])]
+        if sac_state.empty:
+            return jsonify({'area_name': None})
+        sac_state = sac_state.copy()
+        sac_state['county_norm'] = sac_state['county'].apply(lambda v: _normalize_county(v) if pd.notna(v) else '')
+        match = sac_state[sac_state['county_norm'] == county_norm]
+        if match.empty:
+            return jsonify({'area_name': None})
+        area_val = str(match.iloc[0]['area']).strip()
+        return jsonify({'area_name': area_val or None})
+    except Exception as e:
+        return jsonify({'area_name': None, 'error': str(e)})
+
+@app.route('/api/area-overall-rating/<state>/<county>')
+def get_area_overall_rating(state, county):
+    """Return average Overall Rating for all facilities in the area (StateAreaCounty)."""
+    global facilities_data, provider_info_data
+    if facilities_data is None and provider_info_data is None:
+        return jsonify({'overall_rating_by_area': None})
+    sac = load_state_area_county()
+    if sac is None:
+        return jsonify({'overall_rating_by_area': None})
+    try:
+        state_aliases = get_state_aliases(state)
+        county_norm = _normalize_county(county)
+        sac_state = sac[sac['state'].astype(str).str.strip().str.lower().isin([a.lower() for a in state_aliases])]
+        if sac_state.empty:
+            return jsonify({'overall_rating_by_area': None})
+        sac_state = sac_state.copy()
+        sac_state['county_norm'] = sac_state['county'].apply(lambda v: _normalize_county(v) if pd.notna(v) else '')
+        match_row = sac_state[sac_state['county_norm'] == county_norm]
+        if match_row.empty:
+            return jsonify({'overall_rating_by_area': None})
+        area_val = str(match_row.iloc[0]['area']).strip()
+        if area_val.upper() == 'STATEWIDE':
+            area_counties = sac_state['county_norm'].drop_duplicates().tolist()
+        else:
+            area_rows = sac_state[sac_state['area'].astype(str).str.strip().str.upper() == area_val.upper()]
+            area_counties = area_rows['county_norm'].drop_duplicates().tolist()
+        if not area_counties:
+            return jsonify({'overall_rating_by_area': None})
+
+        county_ccns = set()
+        def _collect_ccns(df, state_cols, county_cols, ccn_cols):
+            if df is None:
+                return
+            sc = next((c for c in state_cols if c in df.columns), None)
+            cc = next((c for c in county_cols if c in df.columns), None)
+            ccn = next((c for c in ccn_cols if c in df.columns), None)
+            if not sc or not cc or not ccn:
+                return
+            tmp = df[[sc, cc, ccn]].copy()
+            tmp['__cn'] = tmp[cc].apply(lambda v: _normalize_county(v) if pd.notna(v) else '')
+            for cn in area_counties:
+                sub = tmp[(tmp[sc].astype(str).str.strip().isin(state_aliases)) & (tmp['__cn'] == cn)]
+                if not sub.empty:
+                    county_ccns.update(sub[ccn].astype(str).str.strip().str.lstrip('0').str.zfill(6).tolist())
+
+        _collect_ccns(provider_info_data, ['State', 'STATE', 'Provider State', 'Provider_State'],
+                     ['County/Parish', 'County', 'County Name', 'county_name'],
+                     ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'])
+        if not county_ccns:
+            _collect_ccns(facilities_data, ['State', 'STATE', 'Provider State', 'Provider_State'],
+                         ['County/Parish', 'County', 'County Name', 'county_name'],
+                         ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'])
+
+        if not county_ccns:
+            return jsonify({'overall_rating_by_area': None})
+
+        ccn_to_rating = {}
+        for df in [provider_info_data, facilities_data]:
+            if df is None:
+                continue
+            rating_col = next((c for c in ['Overall Rating', 'Overall_Rating', 'overall_rating'] if c in df.columns), None)
+            ccn_col = next((c for c in ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'] if c in df.columns), None)
+            if not rating_col or not ccn_col:
+                continue
+            sub = df[df[ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6).isin(county_ccns)][[ccn_col, rating_col]]
+            for _, row in sub.drop_duplicates(ccn_col).iterrows():
+                ccn_norm = str(row[ccn_col]).strip().lstrip('0').zfill(6)
+                if ccn_norm in ccn_to_rating:
+                    continue
+                v = row[rating_col]
+                if pd.notna(v) and str(v).strip() not in ('', 'nan', 'None', 'Not available'):
+                    try:
+                        r = float(str(v).strip())
+                        if 1 <= r <= 5:
+                            ccn_to_rating[ccn_norm] = r
+                    except ValueError:
+                        pass
+
+        ratings = list(ccn_to_rating.values())
+        if not ratings:
+            return jsonify({'overall_rating_by_area': None})
+        avg = round(sum(ratings) / len(ratings), 1)
+        return jsonify({'overall_rating_by_area': avg, 'count': len(ratings)})
+    except Exception as e:
+        return jsonify({'overall_rating_by_area': None, 'error': str(e)})
 
 def get_state_aliases(state_input: str) -> Set[str]:
     s = str(state_input).strip()
@@ -2850,6 +3012,90 @@ def get_county_monthly_surveys(state, county):
             total += c
             buckets.append({'month': m, 'label': calendar.month_abbr[m], 'count': c})
         return jsonify({'buckets': buckets, 'count': total})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/area-monthly-surveys/<state>/<county>')
+def get_area_monthly_surveys(state, county):
+    """Section 4: Histogram of survey dates by month for the area containing the facility's county.
+    Uses StateAreaCounty.xlsx to map county->area, then aggregates surveys for all counties in that area.
+    If area is 'Statewide', aggregates all counties in the state."""
+    global facilities_data, provider_info_data, deficiencies_data
+    if deficiencies_data is None or (facilities_data is None and provider_info_data is None):
+        return jsonify({'error': 'Data not loaded'}), 500
+    sac = load_state_area_county()
+    if sac is None:
+        return jsonify({'buckets': [], 'count': 0})
+
+    try:
+        state_aliases = get_state_aliases(state)
+        county_norm = _normalize_county(county)
+        sac_state = sac[sac['state'].astype(str).str.strip().str.lower().isin([a.lower() for a in state_aliases])]
+        if sac_state.empty:
+            return jsonify({'buckets': [], 'count': 0})
+        sac_state = sac_state.copy()
+        sac_state['county_norm'] = sac_state['county'].apply(lambda v: _normalize_county(v) if pd.notna(v) else '')
+        match_row = sac_state[sac_state['county_norm'] == county_norm]
+        if match_row.empty:
+            return jsonify({'buckets': [], 'count': 0})
+        area_val = str(match_row.iloc[0]['area']).strip()
+        if area_val.upper() == 'STATEWIDE':
+            area_counties = sac_state['county_norm'].drop_duplicates().tolist()
+        else:
+            area_rows = sac_state[sac_state['area'].astype(str).str.strip().str.upper() == area_val.upper()]
+            area_counties = area_rows['county_norm'].drop_duplicates().tolist()
+        if not area_counties:
+            return jsonify({'buckets': [], 'count': 0})
+
+        county_ccns = set()
+        def _collect_ccns(df, state_cols, county_cols, ccn_cols):
+            if df is None:
+                return
+            sc = next((c for c in state_cols if c in df.columns), None)
+            cc = next((c for c in county_cols if c in df.columns), None)
+            ccn = next((c for c in ccn_cols if c in df.columns), None)
+            if not sc or not cc or not ccn:
+                return
+            tmp = df[[sc, cc, ccn]].copy()
+            tmp['__cn'] = tmp[cc].apply(lambda v: _normalize_county(v) if pd.notna(v) else '')
+            for cn in area_counties:
+                sub = tmp[(tmp[sc].astype(str).str.strip().isin(state_aliases)) & (tmp['__cn'] == cn)]
+                if not sub.empty:
+                    county_ccns.update(sub[ccn].astype(str).str.strip().str.lstrip('0').str.zfill(6).tolist())
+
+        _collect_ccns(provider_info_data, ['State', 'STATE', 'Provider State', 'Provider_State'],
+                     ['County/Parish', 'County', 'County Name', 'county_name'],
+                     ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'])
+        if not county_ccns:
+            _collect_ccns(facilities_data, ['State', 'STATE', 'Provider State', 'Provider_State'],
+                         ['County/Parish', 'County', 'County Name', 'county_name'],
+                         ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'])
+
+        if not county_ccns:
+            return jsonify({'buckets': [], 'count': 0})
+
+        def_ccn_col = next((c for c in ['CMS Certification Number (CCN)', 'CMS Certification Number', 'CCN', 'ccn'] if c in deficiencies_data.columns), None)
+        date_col_def = next((c for c in ['Health Survey Date', 'Survey Date', 'Date'] if c in deficiencies_data.columns), None)
+        if not def_ccn_col or not date_col_def:
+            return jsonify({'buckets': [], 'count': 0})
+
+        d = deficiencies_data[[def_ccn_col, date_col_def]].copy()
+        d['CCN_STR'] = d[def_ccn_col].astype(str).str.strip().str.lstrip('0').str.zfill(6)
+        d['DATE'] = pd.to_datetime(d[date_col_def], errors='coerce')
+        d = d[(d['CCN_STR'].isin(county_ccns)) & pd.notna(d['DATE'])]
+        start, end = pd.Timestamp('2016-01-01'), pd.Timestamp('2027-12-31')
+        d = d[(d['DATE'] >= start) & (d['DATE'] <= end)]
+        if d.empty:
+            return jsonify({'buckets': [], 'count': 0})
+        d = d.drop_duplicates(subset=['CCN_STR', 'DATE'])
+        month_counts_series = d['DATE'].dt.month.value_counts()
+        month_counts = {int(k): int(v) for k, v in month_counts_series.items()}
+        buckets, total = [], 0
+        for m in range(1, 13):
+            c = int(month_counts.get(m, 0))
+            total += c
+            buckets.append({'month': m, 'label': calendar.month_abbr[m], 'count': c})
+        return jsonify({'buckets': buckets, 'count': total, 'area_name': area_val})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
