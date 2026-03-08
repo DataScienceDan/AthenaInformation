@@ -855,6 +855,10 @@
                     </div>
                 </div>
             </div>
+            <div style="margin-top: 12px;">
+                <button id="reloadDataBtn" type="button" style="padding: 6px 12px; font-size: 0.9rem; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Reload Data</button>
+                <span style="font-size: 0.85rem; color: #6c757d; margin-left: 8px;">Click after updating workbooks (health_deficiencies, provider_info, etc.)</span>
+            </div>
             
             <div id="facilityInfo" class="facility-info" style="display: none;">
                 <h3>Facility Information</h3>
@@ -4656,6 +4660,37 @@ In the worksheet Alerts, use the column for AlertType, description, and the crea
                 console.log('🧩 mergeSelectedFacilitySurveysIntoMap error:', e);
             }
         }
+
+        (function attachReloadDataHandler() {
+            document.addEventListener('DOMContentLoaded', function() {
+                const btn = document.getElementById('reloadDataBtn');
+                if (!btn) return;
+                btn.addEventListener('click', async function() {
+                    try {
+                        btn.disabled = true;
+                        btn.textContent = 'Reloading...';
+                        const res = await fetch('/api/reload-data', { method: 'POST' });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok && data.success) {
+                            alert('Data reloaded successfully. Please re-select your state and facility to see updated information.');
+                            const stateSelect = document.getElementById('stateSelect');
+                            const facilitySelect = document.getElementById('facilitySelect');
+                            if (stateSelect) stateSelect.value = '';
+                            if (facilitySelect) facilitySelect.value = '';
+                            if (typeof onStateChange === 'function') onStateChange();
+                            if (typeof onFacilityChange === 'function') onFacilityChange();
+                        } else {
+                            alert(data.message || 'Failed to reload data.');
+                        }
+                    } catch (e) {
+                        alert('Error: ' + (e.message || String(e)));
+                    } finally {
+                        btn.disabled = false;
+                        btn.textContent = 'Reload Data';
+                    }
+                });
+            });
+        })();
 
         // Wire up Get Schedule button to call backend and populate Section 9
         /* ============================================================

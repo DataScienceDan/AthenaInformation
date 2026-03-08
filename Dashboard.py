@@ -3875,6 +3875,22 @@ def import_todoist():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/reload-data', methods=['POST'])
+def reload_data():
+    """Reload all workbooks (facilities, deficiencies, provider_info, StateAreaCounty) from disk."""
+    global facilities_data, provider_info_data, deficiencies_data, state_area_county_data
+    try:
+        facilities_data = None
+        provider_info_data = None
+        deficiencies_data = None
+        state_area_county_data = None
+        data = load_facilities_data()
+        if data is not None:
+            return jsonify({'success': True, 'message': 'Data reloaded successfully. Refresh the page or re-select a facility.'})
+        return jsonify({'success': False, 'message': 'Failed to load data.'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # Load data when app starts (works for both direct run and gunicorn)
 def initialize_app():
     """Initialize app data - called on startup"""
