@@ -3875,6 +3875,56 @@ def import_todoist():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/best-practice-files')
+def list_best_practice_files():
+    """Return list of Word documents whose filename starts with 'Best Practice'."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(script_dir)
+    found = []
+    for d in [script_dir, parent_dir, os.getcwd()]:
+        try:
+            for f in os.listdir(d or '.'):
+                if f.lower().startswith('best practice') and f.lower().endswith('.docx'):
+                    full = os.path.join(d, f)
+                    if os.path.isfile(full):
+                        found.append(f)
+        except OSError:
+            pass
+    return jsonify({'files': sorted(set(found))})
+
+@app.route('/api/best-practice-content')
+def get_best_practice_content():
+    """Return extracted text from a Best Practice Word document. Query param: filename."""
+    filename = request.args.get('filename', '')
+    if not filename or not filename.lower().startswith('best practice') or not filename.lower().endswith('.docx'):
+        return jsonify({'content': '', 'error': 'Invalid filename'}), 400
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for d in [script_dir, os.path.dirname(script_dir), os.getcwd()]:
+        path = os.path.join(d, filename)
+        if os.path.isfile(path):
+            text = extract_text_from_docx(path)
+            return jsonify({'content': text or ''})
+    return jsonify({'content': '', 'error': 'File not found'}), 404
+
+@app.route('/api/generate-training-script', methods=['POST'])
+def generate_training_script():
+    """Accept prompt and optionally file content, call ChatGPT, return script."""
+    try:
+        data = request.get_json(silent=True) or {}
+        prompt = data.get('prompt', '')
+        if not prompt:
+            return jsonify({'error': 'Missing prompt'}), 400
+        api_key = (data.get('apiKey') or '').strip() or os.getenv('OPENAI_API_KEY', '').strip()
+        if not api_key:
+            return jsonify({'error': 'OpenAI API key not provided.'}), 500
+        client = OpenAI(api_key=api_key)
+        model = os.getenv("OPENAI_SCHEDULE_MODEL", "gpt-4o-mini")
+        response = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+        text = (response.choices[0].message.content or '').strip()
+        return jsonify({'script': text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/reload-data', methods=['POST'])
 def reload_data():
     """Reload all workbooks (facilities, deficiencies, provider_info, StateAreaCounty) from disk."""
